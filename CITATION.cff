@@ -6,8 +6,8 @@ version: 1.0.0
 date-released: 2026-07-28
 authors:
   - name: "Samsarix LLC"
-repository-code: "https://github.com/Deathcharge/helix-creative-studio"
-url: "https://github.com/Deathcharge/helix-creative-studio"
+repository-code: "https://github.com/Deathcharge/samsarix-story-studio"
+url: "https://github.com/Deathcharge/samsarix-story-studio"
 license: BUSL-1.1
 abstract: "A local-first, multi-agent fiction workshop with deterministic demo and bring-your-own-provider modes."
 contact:
