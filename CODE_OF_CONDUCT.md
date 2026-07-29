@@ -22,11 +22,12 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 
 ## Reporting
 
-Report unacceptable behavior to the maintainers.
+Report unacceptable behavior privately to [support@samsarix.com](mailto:support@samsarix.com). Include enough context for the maintainers to investigate, but do not send credentials, private story content, or unrelated personal information.
 
 ## Enforcement
 
 Violations may result in:
+
 - A warning
 - Temporary suspension
 - Permanent removal

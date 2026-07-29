@@ -1,147 +1,169 @@
-import { COOKIE_NAME } from "@shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { getAllAgentConfigs, getAllPresetModes } from "./agentConfig";
-import { testAllProviders } from "./llmRouter";
-import { z } from "zod";
-import * as db from "./db";
-import * as dbQoL from "./dbQoL";
 import { TRPCError } from "@trpc/server";
-import { executeCreativeRitual } from "./z88Engine";
-import { executeCreativeRitualMulti } from "./z88EngineMulti";
+import { z } from "zod";
+import type { Story } from "../drizzle/schema";
+import { getAllAgentConfigs, getAllPresetModes } from "./agentConfig";
+import * as db from "./db";
 import { enhancePrompt } from "./promptEnhancer";
-import { generateContinuationPrompt, generateSeriesId } from "./storyContinuation";
+import {
+  generateContinuationPrompt,
+  generateSeriesId,
+} from "./storyContinuation";
+import { systemRouter } from "./_core/systemRouter";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { executeCreativeRitualMulti } from "./z88EngineMulti";
+
+const providerSchema = z.enum([
+  "openai",
+  "anthropic",
+  "xai",
+  "google",
+  "perplexity",
+]);
+
+const activeGenerations = new Set<number>();
+
+function parseContributions(value: string) {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return [];
+  }
+}
+
+function presentStory(story: Story) {
+  return {
+    ...story,
+    qualityScore: Number(story.qualityScore) / 100,
+    ethicalApproval: Number(story.ethicalApproval) === 1,
+    ucfHarmony: Number(story.ucfHarmony) / 10_000,
+    ucfPrana: Number(story.ucfPrana) / 10_000,
+    ucfDrishti: Number(story.ucfDrishti) / 10_000,
+    ucfKlesha: Number(story.ucfKlesha) / 10_000,
+    ucfResilience: Number(story.ucfResilience) / 10_000,
+    ucfZoom: Number(story.ucfZoom) / 10_000,
+    agentContributions: parseContributions(
+      String(story.agentContributions ?? "[]")
+    ),
+  };
+}
 
 export const appRouter = router({
   system: systemRouter,
 
-  auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
-    }),
-  }),
-
   config: router({
     agents: publicProcedure.query(() => getAllAgentConfigs()),
     presets: publicProcedure.query(() => getAllPresetModes()),
-    testProviders: publicProcedure.query(async () => await testAllProviders()),
   }),
 
   prompts: router({
-    enhance: publicProcedure
-      .input(z.object({ prompt: z.string().min(1).max(500) }))
-      .mutation(async ({ input }) => {
-        const enhanced = await enhancePrompt(input.prompt);
-        return enhanced;
-      }),
+    enhance: protectedProcedure
+      .input(z.object({ prompt: z.string().trim().min(3).max(1_000) }))
+      .mutation(({ input }) => enhancePrompt(input.prompt)),
   }),
+
   stories: router({
     generate: protectedProcedure
-      .input(z.object({ 
-        prompt: z.string().min(10).max(1000),
-        preset: z.string().optional(),
-        customAgents: z.array(z.object({
-          agentId: z.string(),
-          provider: z.string().optional(),
-          temperature: z.number().optional(),
-          multiplicity: z.number().optional(),
-          enabled: z.boolean(),
-        })).optional(),
-      }))
+      .input(
+        z.object({
+          prompt: z.string().trim().min(10).max(1_000),
+          preset: z
+            .enum([
+              "balanced",
+              "creative",
+              "structured",
+              "experimental",
+              "research",
+            ])
+            .default("balanced"),
+          customAgents: z
+            .array(
+              z.object({
+                agentId: z.string().trim().min(1).max(32),
+                provider: providerSchema.optional(),
+                temperature: z.number().min(0).max(1).optional(),
+                enabled: z.boolean(),
+              })
+            )
+            .max(7)
+            .optional()
+            .refine(
+              agents =>
+                !agents ||
+                new Set(agents.map(agent => agent.agentId)).size ===
+                  agents.length,
+              "Agent IDs must be unique"
+            ),
+          seriesId: z.string().trim().min(1).max(128).optional(),
+          chapterNumber: z.number().int().min(1).max(10_000).optional(),
+          previousChapterId: z.number().int().positive().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        // Use multi-LLM engine if preset or customAgents provided
-        const useMultiLLM = input.preset || input.customAgents;
-        
-        const result = useMultiLLM 
-          ? await executeCreativeRitualMulti(input.prompt, {
-              preset: input.preset,
-              customAgents: input.customAgents?.filter(a => a.enabled).map(a => ({
-                agentId: a.agentId,
-                provider: a.provider as any,
-                temperature: a.temperature,
-                multiplicity: a.multiplicity,
-              })),
-            })
-          : await executeCreativeRitual(input.prompt);
-        
-        if (!result.success) {
-          const errorMsg = 'error' in result ? result.error : "Story generation failed";
-          throw new Error(errorMsg || "Story generation failed");
-        }
-
-        // Extract data safely from either engine type
-        const ritualId = 'ritualId' in result ? result.ritualId : result.metadata.ritualId;
-        const title = 'title' in result ? result.title : result.metadata.title;
-        const storyText = 'storyText' in result ? result.storyText : (result as any).story_text;
-        
-        // Store story in database
-        const storyData = {
-          userId: ctx.user.id,
-          title,
-          prompt: input.prompt,
-          content: storyText,
-          ritualId,
-          wordCount: result.metadata.wordCount,
-          qualityScore: Math.round(result.metadata.qualityScore * 100),
-          ethicalApproval: result.metadata.ethicalApproval ? 1 : 0,
-          ucfHarmony: Math.round(result.metadata.ucfSnapshot.harmony * 10000),
-          ucfPrana: Math.round(result.metadata.ucfSnapshot.prana * 10000),
-          ucfDrishti: Math.round(result.metadata.ucfSnapshot.drishti * 10000),
-          ucfKlesha: Math.round(result.metadata.ucfSnapshot.klesha * 10000),
-          ucfResilience: Math.round(result.metadata.ucfSnapshot.resilience * 10000),
-          ucfZoom: Math.round(result.metadata.ucfSnapshot.zoom * 10000),
-          agentContributions: JSON.stringify(result.metadata.agentContributions),
-        };
-
-        await db.createStory(storyData);
-
-        // Store UCF trajectory (only available from old engine)
-        if ('ucf_trajectory' in result && result.ucf_trajectory) {
-          for (const state of result.ucf_trajectory) {
-          await db.createUcfState({
-            ritualId: result.metadata.ritualId,
-            step: state.step,
-            harmony: Math.round(state.harmony * 10000),
-            prana: Math.round(state.prana * 10000),
-            drishti: Math.round(state.drishti * 10000),
-            klesha: Math.round(state.klesha * 10000),
-            resilience: Math.round(state.resilience * 10000),
-            zoom: Math.round(state.zoom * 10000),
+        if (activeGenerations.has(ctx.user.id)) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "A story is already being generated for this user.",
           });
-          }
         }
 
-        // Store agent logs (only available from old engine)
-        if ('agent_outputs' in result && result.agent_outputs) {
-          for (const output of result.agent_outputs) {
-          await db.createAgentLog({
-            ritualId: result.metadata.ritualId,
-            agentName: output.agentName,
-            agentSymbol: output.agentSymbol,
-            role: output.role,
-            content: output.content,
+        activeGenerations.add(ctx.user.id);
+        try {
+          const result = await executeCreativeRitualMulti(input.prompt, {
+            preset: input.preset,
+            customAgents: input.customAgents
+              ?.filter(agent => agent.enabled)
+              .map(({ enabled: _enabled, ...agent }) => agent),
           });
-          }
-        }
 
-        return {
-          ritualId,
-          title,
-          storyText,
-          metadata: result.metadata,
-        };
+          if (!result.success) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: result.error || "Story generation failed",
+            });
+          }
+
+          await db.createStory({
+            userId: ctx.user.id,
+            title: result.title,
+            prompt: input.prompt,
+            content: result.storyText,
+            ritualId: result.ritualId,
+            wordCount: result.metadata.wordCount,
+            qualityScore: Math.round(result.metadata.qualityScore * 100),
+            ethicalApproval: result.metadata.ethicalApproval ? 1 : 0,
+            ucfHarmony: Math.round(
+              result.metadata.ucfSnapshot.harmony * 10_000
+            ),
+            ucfPrana: Math.round(result.metadata.ucfSnapshot.prana * 10_000),
+            ucfDrishti: Math.round(
+              result.metadata.ucfSnapshot.drishti * 10_000
+            ),
+            ucfKlesha: Math.round(result.metadata.ucfSnapshot.klesha * 10_000),
+            ucfResilience: Math.round(
+              result.metadata.ucfSnapshot.resilience * 10_000
+            ),
+            ucfZoom: Math.round(result.metadata.ucfSnapshot.zoom * 10_000),
+            agentContributions: JSON.stringify(
+              result.metadata.agentContributions
+            ),
+            seriesId: input.seriesId,
+            chapterNumber: input.chapterNumber,
+            previousChapterId: input.previousChapterId,
+          });
+
+          return {
+            ritualId: result.ritualId,
+            title: result.title,
+            storyText: result.storyText,
+            metadata: result.metadata,
+          };
+        } finally {
+          activeGenerations.delete(ctx.user.id);
+        }
       }),
 
-    list: publicProcedure.query(async ({ ctx }) => {
-      const userId = ctx.user?.id;
-      const allStories = await db.getAllStories(userId);
-      
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const allStories = await db.getAllStories(ctx.user.id);
       return allStories.map(story => ({
         id: story.id,
         title: story.title,
@@ -150,70 +172,65 @@ export const appRouter = router({
         wordCount: story.wordCount,
         qualityScore: story.qualityScore / 100,
         ethicalApproval: story.ethicalApproval === 1,
-        ucfHarmony: story.ucfHarmony / 10000,
+        ucfHarmony: story.ucfHarmony / 10_000,
         createdAt: story.createdAt,
+        seriesId: story.seriesId,
+        chapterNumber: story.chapterNumber,
       }));
     }),
 
-    getById: publicProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        const story = await db.getStoryById(input.id);
-        if (!story) return null;
-
-        return {
-          ...story,
-          qualityScore: story.qualityScore / 100,
-          ethicalApproval: story.ethicalApproval === 1,
-          ucfHarmony: story.ucfHarmony / 10000,
-          ucfPrana: story.ucfPrana / 10000,
-          ucfDrishti: story.ucfDrishti / 10000,
-          ucfKlesha: story.ucfKlesha / 10000,
-          ucfResilience: story.ucfResilience / 10000,
-          ucfZoom: story.ucfZoom / 10000,
-          agentContributions: JSON.parse(story.agentContributions),
-        };
+    getById: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        const story = await db.getStoryById(input.id, ctx.user.id);
+        return story ? presentStory(story) : null;
       }),
 
-    getByRitualId: publicProcedure
-      .input(z.object({ ritualId: z.string() }))
-      .query(async ({ input }) => {
-        const story = await db.getStoryByRitualId(input.ritualId);
+    getByRitualId: protectedProcedure
+      .input(z.object({ ritualId: z.string().trim().min(1).max(128) }))
+      .query(async ({ input, ctx }) => {
+        const story = await db.getStoryByRitualId(input.ritualId, ctx.user.id);
         if (!story) return null;
-        
-        // Check if this story has a next chapter
-        const nextChapter = story.seriesId && story.chapterNumber
-          ? await db.getStoryBySeriesAndChapter(story.seriesId, story.chapterNumber + 1)
-          : null;
-        
-        return { ...story, hasNextChapter: !!nextChapter };
+        const nextChapter =
+          story.seriesId && story.chapterNumber
+            ? await db.getStoryBySeriesAndChapter(
+                story.seriesId,
+                story.chapterNumber + 1,
+                ctx.user.id
+              )
+            : null;
+        return { ...presentStory(story), hasNextChapter: Boolean(nextChapter) };
       }),
 
     continueStory: protectedProcedure
-      .input(z.object({ 
-        previousStoryId: z.number(),
-        userPrompt: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          previousStoryId: z.number().int().positive(),
+          userPrompt: z.string().trim().max(500).optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        const previousStory = await db.getStoryById(input.previousStoryId);
+        const previousStory = await db.getStoryById(
+          input.previousStoryId,
+          ctx.user.id
+        );
         if (!previousStory) {
-          throw new Error("Previous story not found");
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Previous story not found",
+          });
         }
 
-        // Generate series ID if this is the first continuation
         const seriesId = previousStory.seriesId || generateSeriesId();
         const chapterNumber = (previousStory.chapterNumber || 1) + 1;
-
-        // Update previous story with series info if needed
         if (!previousStory.seriesId) {
-          await db.updateStory(previousStory.id, {
+          await db.updateStory(previousStory.id, ctx.user.id, {
             seriesId,
             chapterNumber: 1,
           });
         }
 
-        // Generate continuation prompt
-        const continuationPrompt = await generateContinuationPrompt({
+        const prompt = await generateContinuationPrompt({
           previousStory: {
             title: previousStory.title,
             content: previousStory.content,
@@ -223,39 +240,43 @@ export const appRouter = router({
         });
 
         return {
-          prompt: continuationPrompt,
+          prompt,
           seriesId,
           chapterNumber,
           previousChapterId: previousStory.id,
         };
       }),
 
-    getSeriesStories: publicProcedure
-      .input(z.object({ seriesId: z.string() }))
-      .query(async ({ input }) => {
-        return await db.getStoriesBySeries(input.seriesId);
-      }),
+    getSeriesStories: protectedProcedure
+      .input(z.object({ seriesId: z.string().trim().min(1).max(128) }))
+      .query(({ input, ctx }) =>
+        db.getStoriesBySeries(input.seriesId, ctx.user.id)
+      ),
 
-    getUcfTrajectory: publicProcedure
-      .input(z.object({ ritualId: z.string() }))
-      .query(async ({ input }) => {
+    getUcfTrajectory: protectedProcedure
+      .input(z.object({ ritualId: z.string().trim().min(1).max(128) }))
+      .query(async ({ input, ctx }) => {
+        const story = await db.getStoryByRitualId(input.ritualId, ctx.user.id);
+        if (!story) throw new TRPCError({ code: "NOT_FOUND" });
         const states = await db.getUcfStatesByRitualId(input.ritualId);
         return states.map(state => ({
           step: state.step,
-          harmony: state.harmony / 10000,
-          prana: state.prana / 10000,
-          drishti: state.drishti / 10000,
-          klesha: state.klesha / 10000,
-          resilience: state.resilience / 10000,
-          zoom: state.zoom / 10000,
+          harmony: state.harmony / 10_000,
+          prana: state.prana / 10_000,
+          drishti: state.drishti / 10_000,
+          klesha: state.klesha / 10_000,
+          resilience: state.resilience / 10_000,
+          zoom: state.zoom / 10_000,
           timestamp: state.timestamp,
         }));
       }),
 
-    getAgentLogs: publicProcedure
-      .input(z.object({ ritualId: z.string() }))
-      .query(async ({ input }) => {
-        return await db.getAgentLogsByRitualId(input.ritualId);
+    getAgentLogs: protectedProcedure
+      .input(z.object({ ritualId: z.string().trim().min(1).max(128) }))
+      .query(async ({ input, ctx }) => {
+        const story = await db.getStoryByRitualId(input.ritualId, ctx.user.id);
+        if (!story) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getAgentLogsByRitualId(input.ritualId);
       }),
   }),
 });

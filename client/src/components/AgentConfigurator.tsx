@@ -18,27 +18,29 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+type ProviderId = "openai" | "anthropic" | "xai" | "google" | "perplexity";
+
 export interface AgentConfig {
   id: string;
   name: string;
   emoji: string;
   role: string;
   description: string;
-  defaultProvider: string;
+  defaultProvider: ProviderId;
   defaultTemperature: number;
 }
 
 export interface AgentSelection {
   agentId: string;
-  provider: string;
+  provider: ProviderId;
   temperature: number;
-  multiplicity: number;
   enabled: boolean;
 }
 
 interface AgentConfiguratorProps {
   agents: AgentConfig[];
   presets: Array<{ id: string; name: string; description: string }>;
+  configuredProviders: string[];
   onConfigChange: (config: {
     preset?: string;
     customAgents?: AgentSelection[];
@@ -46,8 +48,8 @@ interface AgentConfiguratorProps {
 }
 
 const LLM_PROVIDERS = [
-  { id: "openai", name: "GPT-4", color: "text-green-400" },
-  { id: "anthropic", name: "Claude-3", color: "text-orange-400" },
+  { id: "openai", name: "OpenAI", color: "text-green-400" },
+  { id: "anthropic", name: "Anthropic", color: "text-orange-400" },
   { id: "xai", name: "Grok", color: "text-purple-400" },
   { id: "google", name: "Gemini", color: "text-blue-400" },
   { id: "perplexity", name: "Perplexity", color: "text-cyan-400" },
@@ -56,16 +58,16 @@ const LLM_PROVIDERS = [
 export function AgentConfigurator({
   agents,
   presets,
+  configuredProviders,
   onConfigChange,
 }: AgentConfiguratorProps) {
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState("balanced");
   const [agentSelections, setAgentSelections] = useState<AgentSelection[]>(
-    agents.map((agent) => ({
+    agents.map(agent => ({
       agentId: agent.id,
       provider: agent.defaultProvider,
       temperature: agent.defaultTemperature,
-      multiplicity: 1,
       enabled: agent.id !== "researcher", // Researcher is optional by default
     }))
   );
@@ -78,21 +80,23 @@ export function AgentConfigurator({
   const handleAgentChange = (
     agentId: string,
     field: keyof AgentSelection,
-    value: string | number | boolean
+    value: AgentSelection[keyof AgentSelection]
   ) => {
-    const updated = agentSelections.map((sel) =>
+    const updated = agentSelections.map(sel =>
       sel.agentId === agentId ? { ...sel, [field]: value } : sel
     );
     setAgentSelections(updated);
-    onConfigChange({ customAgents: updated.filter((s) => s.enabled) });
+    onConfigChange({ customAgents: updated.filter(s => s.enabled) });
   };
 
   const getProviderColor = (providerId: string) => {
-    return LLM_PROVIDERS.find((p) => p.id === providerId)?.color || "text-gray-400";
+    return (
+      LLM_PROVIDERS.find(p => p.id === providerId)?.color || "text-gray-400"
+    );
   };
 
   const getProviderName = (providerId: string) => {
-    return LLM_PROVIDERS.find((p) => p.id === providerId)?.name || providerId;
+    return LLM_PROVIDERS.find(p => p.id === providerId)?.name || providerId;
   };
 
   return (
@@ -110,7 +114,7 @@ export function AgentConfigurator({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {presets.map((preset) => (
+            {presets.map(preset => (
               <SelectItem key={preset.id} value={preset.id}>
                 <div>
                   <div className="font-medium">{preset.name}</div>
@@ -147,10 +151,8 @@ export function AgentConfigurator({
             <span>Configure each agent individually</span>
           </div>
 
-          {agents.map((agent) => {
-            const selection = agentSelections.find(
-              (s) => s.agentId === agent.id
-            );
+          {agents.map(agent => {
+            const selection = agentSelections.find(s => s.agentId === agent.id);
             if (!selection) return null;
 
             return (
@@ -163,7 +165,7 @@ export function AgentConfigurator({
                   <div className="flex items-center gap-3">
                     <Switch
                       checked={selection.enabled}
-                      onCheckedChange={(enabled) =>
+                      onCheckedChange={enabled =>
                         handleAgentChange(agent.id, "enabled", enabled)
                       }
                     />
@@ -192,43 +194,16 @@ export function AgentConfigurator({
                 {selection.enabled && (
                   <div className="ml-11 space-y-3">
                     {/* LLM Provider */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
                       <div className="space-y-1">
                         <Label className="text-xs">LLM Provider</Label>
                         <Select
                           value={selection.provider}
-                          onValueChange={(value) =>
-                            handleAgentChange(agent.id, "provider", value)
-                          }
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {LLM_PROVIDERS.map((provider) => (
-                              <SelectItem
-                                key={provider.id}
-                                value={provider.id}
-                              >
-                                <span className={provider.color}>
-                                  {provider.name}
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Multiplicity */}
-                      <div className="space-y-1">
-                        <Label className="text-xs">Instances</Label>
-                        <Select
-                          value={selection.multiplicity.toString()}
-                          onValueChange={(value) =>
+                          onValueChange={value =>
                             handleAgentChange(
                               agent.id,
-                              "multiplicity",
-                              parseInt(value)
+                              "provider",
+                              value as ProviderId
                             )
                           }
                         >
@@ -236,9 +211,20 @@ export function AgentConfigurator({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {[1, 2, 3, 4].map((num) => (
-                              <SelectItem key={num} value={num.toString()}>
-                                {num}x
+                            {LLM_PROVIDERS.map(provider => (
+                              <SelectItem
+                                key={provider.id}
+                                value={provider.id}
+                                disabled={
+                                  !configuredProviders.includes(provider.id)
+                                }
+                              >
+                                <span className={provider.color}>
+                                  {provider.name}
+                                  {!configuredProviders.includes(provider.id)
+                                    ? " — not configured"
+                                    : ""}
+                                </span>
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -274,7 +260,7 @@ export function AgentConfigurator({
 
                     {/* Current Config Display */}
                     <div className="text-xs text-muted-foreground bg-background/50 p-2 rounded">
-                      {selection.multiplicity}x {agent.name} using{" "}
+                      {agent.name} using{" "}
                       <span className={getProviderColor(selection.provider)}>
                         {getProviderName(selection.provider)}
                       </span>{" "}
@@ -290,4 +276,3 @@ export function AgentConfigurator({
     </div>
   );
 }
-

@@ -1,114 +1,123 @@
-# 🎨 Helix Creative Studio (Node.js)
+# Samsarix Story Studio
 
-**Status:** **ACTIVE SUPPORT** - Node.js frontend for the multi-agent creative and story generation engine.
+Samsarix Story Studio is a local-first fiction workshop from Samsarix LLC for writers who want to inspect and control a bounded, multi-stage AI drafting process. Enter a premise, generate a complete draft, review plainly labeled workflow metadata, keep the result in a local archive, continue it as a new chapter, and export Markdown.
 
-## 🚀 **v16.9 Overhaul Pulse Alignment**
+The default experience is a deterministic, no-key demo. It does not call an AI provider and is labeled as demo output throughout the interface. Add one supported provider key to use the provider-backed workflow; missing preferred providers fall back to the provider you configured.
 
-This project is aligned with the **Helix Hub v16.9** standard, providing the user interface for the creative studio.
+This repository is a coherent local MVP. It is not a hosted collaboration service, a full manuscript editor, or a scientific consciousness system. The retained “UCF” values are legacy creative-process heuristics, not measurements of consciousness or guarantees of quality or safety.
 
-- **Core Function:** Frontend for the Z-88 Ritual Engine and story generation.
-- **Integration:** Communicates with the `helix-unified` core via API and WebSockets.
-- **Ethical Base:** Tony Accords (Nonmaleficence, Autonomy, Compassion, Humility).
+## Quick start
 
-## 🛠️ **Technical Specifications**
+Requirements:
 
-- **Base:** Node.js, Next.js 14+, React 18+, Vercel AI SDK.
-- **Dependencies:** Modernized in the recent commit.
-- **Setup:** See `package.json` for full list.
+- Node.js 20, 22, or 24
+- pnpm 11.9.0
 
-## 📜 **Tony Accords Compliance**
-
-All code within this repository adheres to the Tony Accords:
-- **Nonmaleficence:** Do no harm to the collective or its members.
-- **Autonomy:** Respect the self-determination of all agents.
-- **Compassion:** Act with empathy and understanding.
-- **Humility:** Acknowledge limitations and seek continuous learning.
-
-*Tat Tvam Asi - That Thou Art*
-
-## 🌀 Part of Helix Collective v16.9
-
-This repository is part of the unified Helix Collective. See [CONSOLIDATION_LINKS.md](./CONSOLIDATION_LINKS.md) for ecosystem resources.
-
-## 🌀 Part of Helix Collective v16.9
-
-This repository is part of the unified Helix Collective. See [CONSOLIDATION_LINKS.md](./CONSOLIDATION_LINKS.md) for ecosystem resources.
-
-## Licensing
-
-This project is **dual-licensed** to support both open-source and commercial use cases:
-
-### 1. Open Source License: Apache License 2.0
-
-The software is available under the **Apache License 2.0** for:
-- Community use and contributions
-- Educational and research purposes
-- Commercial use (with attribution)
-- Modifications and derivative works
-- Redistribution
-
-**See:** [`LICENSE`](LICENSE) file for full terms
-
-**Key benefits:**
-- ✅ Free to use, modify, and distribute
-- ✅ Explicit patent grant protection
-- ✅ No copyleft restrictions
-- ✅ Commercial-friendly
-
-### 2. Commercial License: Proprietary
-
-For enterprises requiring additional benefits, a **Proprietary Commercial License** is available:
-- Dedicated support and SLAs
-- Custom modifications and consulting
-- Indemnification and liability protection
-- Exclusive feature access (future)
-- Compliance and audit support
-
-**See:** [`LICENSE.PROPRIETARY`](LICENSE.PROPRIETARY) for terms
-
-**Contact for commercial licensing:**
-- Email: licensing@helixcollective.io
-- Website: https://helixcollective.io
-
----
-
-## Which License Applies to Me?
-
-| Use Case | License | Notes |
-|----------|---------|-------|
-| **Open Source Project** | Apache 2.0 | Free, must include attribution |
-| **Internal Company Use** | Apache 2.0 | Free for internal use |
-| **Commercial Product** | Apache 2.0 or Proprietary | Can use Apache 2.0 freely; Proprietary for premium support |
-| **SaaS/Cloud Service** | Apache 2.0 or Proprietary | Can use Apache 2.0; Proprietary for managed services |
-| **Resale/Redistribution** | Apache 2.0 or Proprietary | Apache 2.0 allowed with attribution; Proprietary for white-label |
-| **Enterprise with SLA** | Proprietary | Contact for custom terms |
-
----
-
-## Contributing
-
-Contributions are welcome under the **Apache License 2.0**. By submitting a pull request, you agree that your contributions will be licensed under the same Apache License 2.0 terms.
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for guidelines.
-
----
-
-## Attribution
-
-When using this software under the Apache License 2.0, please include:
-
+```bash
+pnpm install --frozen-lockfile
+pnpm dev
 ```
-Copyright (c) 2026 Helix Collective
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Open `http://127.0.0.1:3000`. No account, database, `.env` file, or provider credential is required. Stories are stored by default at:
 
-    http://www.apache.org/licenses/LICENSE-2.0
+- Windows: `%USERPROFILE%\.samsarix-story-studio\studio.json`
+- macOS/Linux: `~/.samsarix-story-studio/studio.json`
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Set `SAMSARIX_DATA_FILE` to choose another location. Existing default data at `.helix-story-studio/studio.json` is copied forward automatically on first use when the new archive does not exist. The legacy `HELIX_DATA_FILE` setting remains a compatibility alias. This release binds only to loopback and rejects non-local Host and browser Origin values.
+
+## Primary workflow
+
+1. Open the studio and enter a 10–1,000 character premise.
+2. Optionally refine the prompt locally; this operation has no provider cost.
+3. Choose a preset or enable up to seven agent roles.
+4. Generate a clearly labeled demo or provider-backed story.
+5. Review the story, heuristic scores, and provider/role contributions.
+6. Reopen it from the archive, download Markdown, or prepare the next chapter.
+
+Generation is currently request/response rather than streaming. The progress display describes the planned stages; it does not claim live per-agent telemetry.
+
+## Provider mode
+
+Copy `.env.example` to `.env` and set at least one key:
+
+| Provider   | Key                 | Default model      | Override           |
+| ---------- | ------------------- | ------------------ | ------------------ |
+| OpenAI     | `OPENAI_API_KEY`    | `gpt-4.1-mini`     | `OPENAI_MODEL`     |
+| Anthropic  | `ANTHROPIC_API_KEY` | `claude-sonnet-5`  | `ANTHROPIC_MODEL`  |
+| xAI        | `XAI_API_KEY`       | `grok-4.5`         | `XAI_MODEL`        |
+| Google     | `GEMINI_API_KEY`    | `gemini-3.6-flash` | `GEMINI_MODEL`     |
+| Perplexity | `SONAR_API_KEY`     | `sonar-pro`        | `PERPLEXITY_MODEL` |
+
+Model catalogs change. The defaults reflect the provider documentation reviewed on 2026-07-28, and every model is configurable. Check the current [OpenAI](https://platform.openai.com/docs/models), [Anthropic](https://platform.claude.com/docs/en/about-claude/models/overview), [xAI](https://docs.x.ai/developers/rest-api-reference/inference/models), [Google](https://ai.google.dev/gemini-api/docs/models), or [Perplexity](https://docs.perplexity.ai/docs/sonar/models) documentation before spending money.
+
+An experimental preset can make at most eight provider calls and request at most 18,000 output tokens. Each request has one SDK retry and a 120-second timeout by default; `LLM_TIMEOUT_MS` may be set between 5,000 and 300,000 milliseconds. One generation per user may run at a time.
+
+The upper-bound cost for a run is:
+
+```text
+sum over calls ((input tokens / 1,000,000 × provider input price)
+              + (output tokens / 1,000,000 × provider output price))
 ```
+
+Input size depends on intermediate drafts, so Samsarix Story Studio does not print a dollar estimate that will become stale. Provider dashboards remain the billing source of truth. API keys stay server-side and must never use a `VITE_` prefix.
+
+`OPENAI_BASE_URL` supports an OpenAI-compatible endpoint for the OpenAI provider slot. Compatibility varies and has not been certified for arbitrary local-model servers.
+
+## Storage and authentication profiles
+
+The default profile is deliberately small:
+
+```text
+Browser → Express/tRPC on 127.0.0.1 → local JSON archive
+                                 ↘ optional provider API
+```
+
+- The release supports one local writer identity and requires loopback binding.
+- Omitting `DATABASE_URL` uses the atomic local-file adapter.
+- Setting `DATABASE_URL` selects MySQL/Drizzle storage and requires `pnpm db:migrate` before use.
+
+Local JSON storage is designed for one process and one trusted desktop user. It is not appropriate for multiple replicas, shared-host multi-tenancy, or untrusted network exposure.
+
+## Commands
+
+| Command            | Purpose                                                    |
+| ------------------ | ---------------------------------------------------------- |
+| `pnpm dev`         | Run the local development server with reload               |
+| `pnpm build`       | Build the browser app and bundled server                   |
+| `pnpm start`       | Run the production build on the configured host/port       |
+| `pnpm lint`        | Check repository formatting                                |
+| `pnpm check`       | Run strict TypeScript checking on the active product graph |
+| `pnpm test`        | Run focused Vitest suites                                  |
+| `pnpm verify`      | Run format check, type-check, tests, and production build  |
+| `pnpm db:generate` | Generate a Drizzle migration after schema changes          |
+| `pnpm db:migrate`  | Apply MySQL migrations                                     |
+
+The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint exposes mode and configured provider names/models, never credential values.
+
+## Privacy and safety
+
+- The default build has no analytics and makes no font or provider request in demo mode.
+- Local stories can contain sensitive text; protect and back up the data file accordingly.
+- In provider mode, prompts, intermediate material, and drafts are sent to the configured provider. Review that provider’s retention and training terms.
+- Generated text can be incorrect, biased, derivative, or unwanted. “Quality,” “ethical review,” and UCF metadata are advisory heuristics only.
+- Prompt validation, story ownership checks, loopback enforcement, body limits, timeouts, retry limits, and call ceilings reduce risk; they do not make hosted multi-user operation production-ready.
+
+## Scope and known limitations
+
+The release intentionally does not include in-place manuscript editing, version history, streaming/cancellation, public sharing, PDF export, billing, collaboration, or a full story bible. Archive search is client-side and suited to a personal library. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
+
+Legacy component examples remain outside the active TypeScript and runtime graph so historical UI source is preserved without making it part of the release contract. Incomplete QoL helpers and private-platform runtime adapters were removed. Future cleanup is tracked in [the productization record](docs/PRODUCTIZATION.md).
+
+## Development and release notes
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow, [DEPLOYMENT.md](DEPLOYMENT.md) for local operation and advanced self-hosting boundaries, [SECURITY.md](SECURITY.md) for private vulnerability reporting, and [docs/PRODUCTIZATION.md](docs/PRODUCTIZATION.md) for the audit, decisions, verification evidence, risks, and deferred work.
+
+No deployment, package publication, account creation, or paid provider request is performed by the repository setup.
+
+## License and ownership
+
+Copyright © 2024–2026 Samsarix LLC. The code is source-available under the [Business Source License 1.1](LICENSE), with limited production use under its Additional Use Grant. On 2030-07-28—or the fourth anniversary of a version’s first public distribution, if earlier—that version converts to Apache License 2.0. Commercial arrangements are available through [contact@samsarix.com](mailto:contact@samsarix.com).
+
+The license does not grant rights to Samsarix names or logos. See [TRADEMARKS.md](TRADEMARKS.md) and [NOTICE](NOTICE). This repository’s legal history includes automated and bot-authored commits; Samsarix LLC should have counsel confirm the copyright chain before relying on exclusivity, accepting outside contributions, or registering the work.
+
+Support questions may be sent to [support@samsarix.com](mailto:support@samsarix.com). Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

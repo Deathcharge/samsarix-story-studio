@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If this software supports your work, please cite it using this metadata."
+title: "Samsarix Story Studio"
+type: software
+version: 1.0.0
+date-released: 2026-07-28
+authors:
+  - name: "Samsarix LLC"
+repository-code: "https://github.com/Deathcharge/helix-creative-studio"
+url: "https://github.com/Deathcharge/helix-creative-studio"
+license: BUSL-1.1
+abstract: "A local-first, multi-agent fiction workshop with deterministic demo and bring-your-own-provider modes."
+contact:
+  - name: "Samsarix LLC"
+    email: "contact@samsarix.com"

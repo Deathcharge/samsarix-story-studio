@@ -1,4 +1,11 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import {
+  int,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -11,7 +18,7 @@ export const users = mysqlTable("users", {
    * Use this for relations between tables.
    */
   id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
+  /** Stable identity key. The local profile uses `local-writer`. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -51,7 +58,7 @@ export const stories = mysqlTable("stories", {
   seriesId: varchar("seriesId", { length: 64 }),
   chapterNumber: int("chapterNumber"),
   previousChapterId: int("previousChapterId"),
-  // QoL features
+  // Reserved legacy organization fields; not exposed by the local MVP.
   collectionId: int("collectionId"),
   tags: text("tags"), // JSON array of tag strings
   isFavorite: int("isFavorite").notNull().default(0), // 1 = true, 0 = false
@@ -101,7 +108,9 @@ export type InsertAgentLog = typeof agentLogs.$inferInsert;
  */
 export const collections = mysqlTable("collections", {
   id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull().references(() => users.id),
+  userId: int("userId")
+    .notNull()
+    .references(() => users.id),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   color: varchar("color", { length: 7 }), // Hex color code

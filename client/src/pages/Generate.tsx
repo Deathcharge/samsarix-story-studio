@@ -1,308 +1,370 @@
-import React from "react";
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  CircleAlert,
+  Loader2,
+  Sparkles,
+  Wand2,
+  Zap,
+} from "lucide-react";
+import { Link, useLocation } from "wouter";
+import {
+  AgentConfigurator,
+  type AgentSelection,
+} from "@/components/AgentConfigurator";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { getLoginUrl } from "@/const";
+import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Sparkles, Zap, ArrowLeft, Loader2, Wand2 } from "lucide-react";
-import { Link, useLocation } from "wouter";
-import { AgentConfigurator, type AgentSelection } from "@/components/AgentConfigurator";
+
+const EXAMPLE_PROMPTS = [
+  "A hacker discovers their memories are corporate property and must steal them back",
+  "An AI detective investigates murders in a city where consciousness can be uploaded",
+  "A street medic protects a child who can see through augmented-reality propaganda",
+  "A memory trader finds a black-market chip containing the last unedited public record",
+];
+
+const STAGES = [
+  "Structuring the central conflict",
+  "Developing the protagonist's choice",
+  "Building the setting and constraints",
+  "Testing the turning point",
+  "Synthesizing the draft",
+  "Running the advisory review",
+];
+
+function getContinuationParameters() {
+  if (typeof window === "undefined") return new URLSearchParams();
+  return new URLSearchParams(window.location.search);
+}
 
 export default function Generate() {
-  const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
-  const [prompt, setPrompt] = React.useState("");
-  const [isGenerating, setIsGenerating] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
-  const [statusMessage, setStatusMessage] = React.useState("");
-  const [isEnhancing, setIsEnhancing] = React.useState(false);
-  const [enhancedData, setEnhancedData] = React.useState<any>(null);
-
-  const enhanceMutation = trpc.prompts.enhance.useMutation({
-    onSuccess: (data) => {
-      setEnhancedData(data);
-      setPrompt(data.enhanced);
-      setIsEnhancing(false);
-    },
-    onError: () => {
-      setIsEnhancing(false);
-    },
-  });
-  const [generationConfig, setGenerationConfig] = React.useState<{
+  const continuation = useMemo(getContinuationParameters, []);
+  const [prompt, setPrompt] = useState(continuation.get("prompt") ?? "");
+  const [progress, setProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState("Ready");
+  const [enhancedData, setEnhancedData] = useState<{
+    detectedGenre: string;
+    detectedTone: string;
+    suggestedThemes: string[];
+  } | null>(null);
+  const [generationConfig, setGenerationConfig] = useState<{
     preset?: string;
     customAgents?: AgentSelection[];
   }>({ preset: "balanced" });
 
-  // Fetch agent and preset configurations
+  const statusQuery = trpc.system.status.useQuery();
+  const status = statusQuery.data;
   const { data: agents } = trpc.config.agents.useQuery();
   const { data: presets } = trpc.config.presets.useQuery();
 
-  const generateMutation = trpc.stories.generate.useMutation({
-    onSuccess: (data) => {
-      setIsGenerating(false);
-      setProgress(100);
-      setStatusMessage("Story complete!");
-      // Navigate to the story detail page using ritualId
-      setTimeout(() => {
-        setLocation(`/story/${data.ritualId}`);
-      }, 1000);
-    },
-    onError: (error) => {
-      setIsGenerating(false);
-      setStatusMessage(`Error: ${error.message}`);
+  const enhanceMutation = trpc.prompts.enhance.useMutation({
+    onSuccess: data => {
+      setEnhancedData(data);
+      setPrompt(data.enhanced);
     },
   });
 
+  const generateMutation = trpc.stories.generate.useMutation({
+    onSuccess: data => {
+      setProgress(100);
+      setStatusMessage("Draft saved");
+      setLocation(`/story/${data.ritualId}`);
+    },
+    onError: () => {
+      setProgress(0);
+      setStatusMessage("Generation stopped");
+    },
+  });
+
+  useEffect(() => {
+    if (!generateMutation.isPending) return;
+    let stage = 0;
+    setProgress(8);
+    setStatusMessage(STAGES[stage]);
+    const interval = window.setInterval(() => {
+      stage = Math.min(stage + 1, STAGES.length - 1);
+      setProgress(current => Math.min(current + 14, 92));
+      setStatusMessage(STAGES[stage]);
+    }, 1_800);
+    return () => window.clearInterval(interval);
+  }, [generateMutation.isPending]);
+
+  const trimmedPrompt = prompt.trim();
+  const canGenerate =
+    Boolean(status) &&
+    trimmedPrompt.length >= 10 &&
+    !generateMutation.isPending;
+  const isDemo = status?.mode !== "provider";
+
   const handleGenerate = () => {
-    if (!prompt.trim() || prompt.length < 10) {
-      setStatusMessage("Please enter a prompt (at least 10 characters)");
-      return;
-    }
-
-    setIsGenerating(true);
-    setProgress(0);
-    setStatusMessage("Initializing Z-88 Ritual Engine...");
-
-    // More realistic progress simulation with variable speed
-    let currentProgress = 0;
-    const progressSteps = [
-      { progress: 10, delay: 1000, message: "Phase 1: Invocation & Intent Setting" },
-      { progress: 20, delay: 2000, message: "Phase 2: Agent Roll Call" },
-      { progress: 35, delay: 3000, message: "Phase 3: Invoking Oracle (Plot Architect)" },
-      { progress: 45, delay: 3000, message: "Phase 3: Invoking Lumina (Character Psychologist)" },
-      { progress: 55, delay: 3000, message: "Phase 3: Invoking Gemini (World-Builder)" },
-      { progress: 65, delay: 3000, message: "Phase 3: Invoking Agni (Creative Catalyst)" },
-      { progress: 75, delay: 4000, message: "Phase 4: Synthesizing story with Manus" },
-      { progress: 85, delay: 3000, message: "Phase 4: Quality assessment with Claude" },
-      { progress: 92, delay: 2000, message: "Phase 4: Ethical scan with Kavach" },
-      { progress: 98, delay: 1000, message: "Finalizing story..." },
-    ];
-
-    let stepIndex = 0;
-    const runNextStep = () => {
-      if (stepIndex < progressSteps.length && isGenerating) {
-        const step = progressSteps[stepIndex];
-        setProgress(step.progress);
-        setStatusMessage(step.message);
-        stepIndex++;
-        setTimeout(runNextStep, step.delay);
-      }
-    };
-
-    setTimeout(runNextStep, 1000);
-    generateMutation.mutate({ 
-      prompt,
-      preset: generationConfig.preset,
+    if (!canGenerate) return;
+    generateMutation.reset();
+    generateMutation.mutate({
+      prompt: trimmedPrompt,
+      preset: generationConfig.preset as
+        | "balanced"
+        | "creative"
+        | "structured"
+        | "experimental"
+        | "research"
+        | undefined,
       customAgents: generationConfig.customAgents,
+      seriesId: continuation.get("seriesId") || undefined,
+      chapterNumber: Number(continuation.get("chapterNumber")) || undefined,
+      previousChapterId:
+        Number(continuation.get("previousChapterId")) || undefined,
     });
   };
 
-  const examplePrompts = [
-    "A hacker discovers their memories are corporate property and must steal them back",
-    "An AI detective investigates murders in a city where consciousness can be uploaded",
-    "A street samurai protects a child who can see through augmented reality illusions",
-    "A memory trader finds a black market chip containing the last human emotion",
-  ];
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <header className="border-b border-border/50 backdrop-blur-sm bg-background/80">
-          <div className="container flex items-center justify-between h-16">
-            <Link href="/">
-              <a className="flex items-center gap-2">
-                <Zap className="w-6 h-6 text-primary" />
-                <span className="text-xl font-bold glow-cyan">Helix Creative Studio</span>
-              </a>
-            </Link>
-          </div>
-        </header>
-
-        <main className="flex-1 flex items-center justify-center">
-          <Card className="p-12 max-w-md text-center space-y-6">
-            <Sparkles className="w-16 h-16 text-primary mx-auto" />
-            <h2 className="text-2xl font-bold">Sign In Required</h2>
-            <p className="text-muted-foreground">
-              Please sign in to generate stories with the Z-88 Creative Engine.
-            </p>
-            <Button asChild size="lg" className="w-full">
-              <a href={getLoginUrl()}>Sign In</a>
-            </Button>
-          </Card>
-        </main>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="border-b border-border/50 backdrop-blur-sm bg-background/80">
-        <div className="container flex items-center justify-between h-16">
-          <Link href="/">
-            <a className="flex items-center gap-2">
-              <Zap className="w-6 h-6 text-primary" />
-              <span className="text-xl font-bold glow-cyan">Helix Creative Studio</span>
-            </a>
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/90 backdrop-blur-xl">
+        <div className="container flex h-16 items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 font-semibold">
+            <Zap className="h-5 w-5 text-primary" aria-hidden="true" />
+            Samsarix Story Studio
           </Link>
-          <nav className="flex items-center gap-6">
-            <Link href="/generate">
-              <a className="text-sm text-primary font-medium">Generate</a>
+          <nav
+            aria-label="Primary navigation"
+            className="flex items-center gap-5 text-sm"
+          >
+            <Link href="/generate" className="font-medium text-primary">
+              Studio
             </Link>
-            <Link href="/archive">
-              <a className="text-sm hover:text-primary transition-colors">Archive</a>
+            <Link
+              href="/archive"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Archive
             </Link>
           </nav>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 container py-12">
-        <div className="max-w-4xl mx-auto space-y-8">
-          <div className="flex items-center gap-4">
-            <Link href="/">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
-            </Link>
+      <main className="container py-10 md:py-14">
+        <div className="mx-auto max-w-4xl space-y-8">
+          <div className="flex items-start gap-4">
+            <Button asChild variant="ghost" size="sm" className="mt-1">
+              <Link href="/">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Home
+              </Link>
+            </Button>
             <div>
-              <h1 className="text-3xl font-bold">Generate Story</h1>
-              <p className="text-muted-foreground mt-1">
-                Enter a prompt to begin the Z-88 creative ritual
+              <p className="eyebrow">Writing workspace</p>
+              <h1 className="mt-2 text-3xl font-bold md:text-4xl">
+                {continuation.has("seriesId")
+                  ? "Draft the next chapter"
+                  : "Turn a premise into a complete draft"}
+              </h1>
+              <p className="mt-2 max-w-2xl text-muted-foreground">
+                Shape the premise, choose a workflow, and keep the result in
+                your local archive.
               </p>
             </div>
           </div>
 
-          {/* Prompt Input */}
-          <Card className="p-6 space-y-4 border-glow">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Story Prompt</label>
-              <Textarea
-                placeholder="A hacker discovers their memories are corporate property..."
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                rows={4}
-                disabled={isGenerating}
-                className="resize-none"
-                maxLength={1000}
-              />
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  {prompt.length} / 1000 characters (minimum 10)
+          {status && (
+            <div
+              className={`mode-banner ${isDemo ? "mode-banner-demo" : "mode-banner-live"}`}
+            >
+              <div>
+                <strong>{isDemo ? "Local demo mode" : "Provider mode"}</strong>
+                <p>
+                  {isDemo
+                    ? "No API key is configured. The studio will create a deterministic sample draft so you can evaluate the complete workflow without spend."
+                    : `${status.configuredProviders.length} provider${status.configuredProviders.length === 1 ? "" : "s"} configured. Preferred agents fall back to an available provider when needed.`}
                 </p>
-                {prompt.length > 0 && prompt.length < 100 && (
-                  <button
-                    onClick={() => {
-                      setIsEnhancing(true);
-                      enhanceMutation.mutate({ prompt });
-                    }}
-                    disabled={isEnhancing || isGenerating}
-                    className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
-                  >
-                    {isEnhancing ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Enhancing...
-                      </>
-                    ) : (
-                      <>
-                        <Wand2 className="w-3 h-3" />
-                        Auto-enhance prompt
-                      </>
-                    )}
-                  </button>
-                )}
               </div>
-              {enhancedData && (
-                <div className="text-xs p-3 bg-primary/5 border border-primary/20 rounded space-y-1">
-                  <div className="flex items-center gap-2 text-primary font-medium">
-                    <Sparkles className="w-3 h-3" />
-                    Enhanced Prompt Applied
-                  </div>
-                  <div className="text-muted-foreground">
-                    Genre: {enhancedData.detectedGenre} • Tone: {enhancedData.detectedTone}
-                  </div>
-                  {enhancedData.suggestedThemes.length > 0 && (
-                    <div className="text-muted-foreground">
-                      Themes: {enhancedData.suggestedThemes.join(", ")}
-                    </div>
+              <span className="status-pill">{status.storageMode}</span>
+            </div>
+          )}
+
+          {statusQuery.error && (
+            <Card
+              className="space-y-4 border-destructive/30 p-6 text-center"
+              role="alert"
+            >
+              <CircleAlert className="mx-auto h-8 w-8 text-destructive" />
+              <div>
+                <strong>The local server status is unavailable</strong>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {statusQuery.error.message}
+                </p>
+              </div>
+              <Button variant="outline" onClick={() => statusQuery.refetch()}>
+                Try again
+              </Button>
+            </Card>
+          )}
+
+          <Card className="space-y-6 border-primary/20 p-6 md:p-8">
+            <div className="space-y-2">
+              <label htmlFor="story-prompt" className="text-sm font-semibold">
+                Story premise
+              </label>
+              <Textarea
+                id="story-prompt"
+                placeholder="A transit engineer discovers the city's safest route is built from stolen memories..."
+                value={prompt}
+                onChange={event => {
+                  setPrompt(event.target.value);
+                  setEnhancedData(null);
+                  generateMutation.reset();
+                }}
+                rows={6}
+                disabled={generateMutation.isPending}
+                className="resize-y text-base leading-relaxed"
+                maxLength={1_000}
+                aria-describedby="prompt-help"
+              />
+              <div
+                id="prompt-help"
+                className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground"
+              >
+                <span>{prompt.length} / 1,000 characters · minimum 10</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    enhanceMutation.mutate({ prompt: trimmedPrompt })
+                  }
+                  disabled={
+                    trimmedPrompt.length < 3 ||
+                    enhanceMutation.isPending ||
+                    generateMutation.isPending
+                  }
+                  className="inline-flex items-center gap-1.5 font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {enhanceMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-3.5 w-3.5" />
                   )}
-                </div>
-              )}
+                  {enhanceMutation.isPending ? "Refining" : "Refine locally"}
+                </button>
+              </div>
             </div>
 
-            {/* Agent Configurator */}
-            {agents && presets && (
+            {enhanceMutation.error && (
+              <p
+                role="alert"
+                className="inline-flex items-center gap-2 text-sm text-destructive"
+              >
+                <CircleAlert className="h-4 w-4" />
+                {enhanceMutation.error.message}
+              </p>
+            )}
+
+            {enhancedData && (
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm">
+                <strong>Prompt refined locally</strong>
+                <p className="mt-1 text-muted-foreground">
+                  {enhancedData.detectedGenre} · {enhancedData.detectedTone} ·{" "}
+                  {enhancedData.suggestedThemes.join(", ")}
+                </p>
+              </div>
+            )}
+
+            {!isDemo && agents && presets && status && (
               <AgentConfigurator
                 agents={agents}
                 presets={presets}
+                configuredProviders={status.configuredProviders}
                 onConfigChange={setGenerationConfig}
               />
             )}
 
+            {generateMutation.error && (
+              <div
+                role="alert"
+                className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm"
+              >
+                <strong>Draft not created</strong>
+                <p className="mt-1 text-muted-foreground">
+                  {generateMutation.error.message}
+                </p>
+              </div>
+            )}
+
             <Button
               onClick={handleGenerate}
-              disabled={isGenerating || prompt.length < 10}
+              disabled={!canGenerate}
               size="lg"
-              className="w-full"
+              className="w-full text-base"
             >
-              {isGenerating ? (
+              {generateMutation.isPending ? (
                 <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Generating...
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Creating draft
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-5 h-5 mr-2" />
-                  Generate Story
+                  <Sparkles className="mr-2 h-5 w-5" />
+                  {!status
+                    ? "Loading studio"
+                    : isDemo
+                      ? "Create demo draft"
+                      : "Generate and save draft"}
                 </>
               )}
             </Button>
+
+            {!isDemo && status && (
+              <p className="text-center text-xs text-muted-foreground">
+                At most {status.maxProviderCallsPerStory} provider calls and{" "}
+                {status.maxOutputTokensPerStory.toLocaleString()} requested
+                output tokens per story. Provider charges remain yours.
+              </p>
+            )}
           </Card>
 
-          {/* Progress Display */}
-          {isGenerating && (
-            <Card className="p-6 space-y-4 border-primary/50">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium">{statusMessage}</span>
-                  <span className="text-muted-foreground">{progress}%</span>
-                </div>
-                <Progress value={progress} className="h-2" />
+          {generateMutation.isPending && (
+            <Card
+              className="space-y-3 border-primary/40 p-6"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <span className="font-medium">{statusMessage}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {progress}%
+                </span>
               </div>
-
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>🔮 Oracle: Designing plot structure...</p>
-                <p>🌸 Lumina: Developing character arcs...</p>
-                <p>🎭 Gemini: Building cyberpunk world...</p>
-                <p>🔥 Agni: Injecting creative twists...</p>
-              </div>
+              <Progress value={progress} className="h-2" />
+              <p className="text-xs text-muted-foreground">
+                This indicator shows workflow stages, not live provider token
+                progress.
+              </p>
             </Card>
           )}
 
-          {/* Example Prompts */}
-          {!isGenerating && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium text-muted-foreground">Example Prompts</h3>
-              <div className="grid gap-3">
-                {examplePrompts.map((example, index) => (
+          {!generateMutation.isPending && !continuation.has("seriesId") && (
+            <section aria-labelledby="prompt-examples" className="space-y-3">
+              <h2
+                id="prompt-examples"
+                className="text-sm font-semibold text-muted-foreground"
+              >
+                Start from an example
+              </h2>
+              <div className="grid gap-3 md:grid-cols-2">
+                {EXAMPLE_PROMPTS.map(example => (
                   <button
-                    key={index}
+                    key={example}
+                    type="button"
                     onClick={() => setPrompt(example)}
-                    className="text-left p-4 rounded-lg border border-border/50 hover:border-primary/50 hover:bg-card/50 transition-all text-sm"
+                    className="rounded-xl border border-border/60 bg-card/40 p-4 text-left text-sm leading-relaxed transition hover:border-primary/50 hover:bg-card"
                   >
                     {example}
                   </button>
                 ))}
               </div>
-            </div>
+            </section>
           )}
         </div>
       </main>
     </div>
   );
 }
-

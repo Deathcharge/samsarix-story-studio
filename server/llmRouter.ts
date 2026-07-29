@@ -1,13 +1,13 @@
-/**
- * Multi-LLM Router
- * Supports OpenAI, Anthropic, xAI (Grok), Google (Gemini), and Perplexity
- */
-
-import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 
-export type LLMProvider = "openai" | "anthropic" | "xai" | "google" | "perplexity";
+export type LLMProvider =
+  | "openai"
+  | "anthropic"
+  | "xai"
+  | "google"
+  | "perplexity";
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant";
@@ -31,136 +31,214 @@ export interface LLMResponse {
   };
 }
 
-// Initialize clients
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const PROVIDER_KEYS: Record<LLMProvider, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  xai: "XAI_API_KEY",
+  google: "GEMINI_API_KEY",
+  perplexity: "SONAR_API_KEY",
+};
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const MODEL_KEYS: Record<LLMProvider, string> = {
+  openai: "OPENAI_MODEL",
+  anthropic: "ANTHROPIC_MODEL",
+  xai: "XAI_MODEL",
+  google: "GEMINI_MODEL",
+  perplexity: "PERPLEXITY_MODEL",
+};
 
-// xAI Grok uses OpenAI-compatible API
-const xai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY,
-  baseURL: "https://api.x.ai/v1",
-});
-
-const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-
-const perplexity = new OpenAI({
-  apiKey: process.env.SONAR_API_KEY,
-  baseURL: "https://api.perplexity.ai",
-});
-
-/**
- * Default model mappings for each provider
- */
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4-turbo-preview",
-  anthropic: "claude-3-5-sonnet-20241022",
-  xai: "grok-beta",
-  google: "gemini-2.0-flash-exp",
+  openai: "gpt-4.1-mini",
+  anthropic: "claude-sonnet-5",
+  xai: "grok-4.5",
+  google: "gemini-3.6-flash",
   perplexity: "sonar-pro",
 };
 
-/**
- * Route LLM request to appropriate provider
- */
+function getTimeoutMs() {
+  const parsed = Number(process.env.LLM_TIMEOUT_MS ?? 120_000);
+  if (!Number.isFinite(parsed)) return 120_000;
+  return Math.min(Math.max(Math.floor(parsed), 5_000), 300_000);
+}
+
+function getApiKey(provider: LLMProvider) {
+  return process.env[PROVIDER_KEYS[provider]]?.trim() ?? "";
+}
+
+export function getConfiguredProviders(): LLMProvider[] {
+  return (Object.keys(PROVIDER_KEYS) as LLMProvider[]).filter(
+    provider => getApiKey(provider).length > 0
+  );
+}
+
+export function getModelForProvider(provider: LLMProvider) {
+  return process.env[MODEL_KEYS[provider]]?.trim() || DEFAULT_MODELS[provider];
+}
+
+export function resolveConfiguredProvider(preferred: LLMProvider) {
+  if (getApiKey(preferred)) return preferred;
+  return getConfiguredProviders()[0];
+}
+
+function requireApiKey(provider: LLMProvider) {
+  const key = getApiKey(provider);
+  if (!key) {
+    throw new Error(
+      `${provider} is not configured. Set ${PROVIDER_KEYS[provider]} or choose an available provider.`
+    );
+  }
+  return key;
+}
+
+async function withTimeout<T>(promise: Promise<T>, provider: LLMProvider) {
+  const timeoutMs = getTimeoutMs();
+  let timeout: NodeJS.Timeout | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () =>
+        reject(new Error(`${provider} request timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  });
+
+  try {
+    return await Promise.race([promise, guard]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export async function callLLM(
   provider: LLMProvider,
   messages: LLMMessage[],
   options: LLMOptions = {}
 ): Promise<LLMResponse> {
-  const { temperature = 0.7, maxTokens = 2000, stream = false } = options;
+  if (options.stream) {
+    throw new Error("Streaming is not supported by this release");
+  }
+
+  const temperature = Math.min(Math.max(options.temperature ?? 0.7, 0), 1);
+  const maxTokens = Math.min(Math.max(options.maxTokens ?? 2_000, 1), 4_000);
+  if (!getApiKey(provider)) {
+    throw new Error(
+      `${provider} is not configured. Set ${PROVIDER_KEYS[provider]} or choose an available provider.`
+    );
+  }
 
   try {
     switch (provider) {
       case "openai":
-        return await callOpenAI(messages, temperature, maxTokens);
-      
+        return await callOpenAI(provider, messages, temperature, maxTokens);
       case "anthropic":
         return await callAnthropic(messages, temperature, maxTokens);
-      
       case "xai":
-        return await callXAI(messages, temperature, maxTokens);
-      
+        return await callOpenAI(provider, messages, temperature, maxTokens);
       case "google":
         return await callGemini(messages, temperature, maxTokens);
-      
       case "perplexity":
-        return await callPerplexity(messages, temperature, maxTokens);
-      
-      default:
-        throw new Error(`Unsupported provider: ${provider}`);
+        return await callOpenAI(provider, messages, temperature, maxTokens);
     }
   } catch (error) {
-    console.error(`[LLM Router] Error calling ${provider}:`, error);
-    throw error;
+    const status =
+      typeof error === "object" &&
+      error !== null &&
+      "status" in error &&
+      typeof error.status === "number"
+        ? error.status
+        : undefined;
+    if (status === 401 || status === 403) {
+      throw new Error(`${provider} rejected the configured credentials.`);
+    }
+    if (status === 404) {
+      throw new Error(
+        `${provider} could not use the configured model. Check the model override.`
+      );
+    }
+    if (status === 429) {
+      throw new Error(
+        `${provider} rate limit or quota was reached. Try again later.`
+      );
+    }
+    if (error instanceof Error && error.message.includes("timed out after")) {
+      throw new Error(error.message);
+    }
+    throw new Error(
+      `${provider} request failed. Check provider status, connectivity, and model configuration.`
+    );
   }
 }
 
-/**
- * OpenAI (GPT-4)
- */
 async function callOpenAI(
+  provider: "openai" | "xai" | "perplexity",
   messages: LLMMessage[],
   temperature: number,
   maxTokens: number
 ): Promise<LLMResponse> {
-  const response = await openai.chat.completions.create({
-    model: DEFAULT_MODELS.openai,
-    messages: messages.map(m => ({
-      role: m.role,
-      content: m.content,
-    })),
+  const baseURL =
+    provider === "xai"
+      ? "https://api.x.ai/v1"
+      : provider === "perplexity"
+        ? "https://api.perplexity.ai"
+        : process.env.OPENAI_BASE_URL?.trim() || undefined;
+  const client = new OpenAI({
+    apiKey: requireApiKey(provider),
+    baseURL,
+    maxRetries: 1,
+    timeout: getTimeoutMs(),
+  });
+  const model = getModelForProvider(provider);
+  const response = await client.chat.completions.create({
+    model,
+    messages,
     temperature,
     max_tokens: maxTokens,
   });
-
-  const choice = response.choices[0];
-  if (!choice?.message?.content) {
-    throw new Error("No content in OpenAI response");
-  }
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error("Provider returned no text content");
 
   return {
-    content: choice.message.content,
-    provider: "openai",
+    content,
+    provider,
     model: response.model,
     usage: {
-      promptTokens: response.usage?.prompt_tokens || 0,
-      completionTokens: response.usage?.completion_tokens || 0,
-      totalTokens: response.usage?.total_tokens || 0,
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+      totalTokens: response.usage?.total_tokens ?? 0,
     },
   };
 }
 
-/**
- * Anthropic (Claude)
- */
 async function callAnthropic(
   messages: LLMMessage[],
   temperature: number,
   maxTokens: number
 ): Promise<LLMResponse> {
-  // Separate system message from conversation
-  const systemMessage = messages.find(m => m.role === "system");
-  const conversationMessages = messages.filter(m => m.role !== "system");
-
-  const response = await anthropic.messages.create({
-    model: DEFAULT_MODELS.anthropic,
-    system: systemMessage?.content || "",
-    messages: conversationMessages.map(m => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content,
-    })),
+  const client = new Anthropic({
+    apiKey: requireApiKey("anthropic"),
+    maxRetries: 1,
+    timeout: getTimeoutMs(),
+  });
+  const system = messages.find(message => message.role === "system")?.content;
+  const conversation = messages
+    .filter(message => message.role !== "system")
+    .map(message => ({
+      role:
+        message.role === "assistant"
+          ? ("assistant" as const)
+          : ("user" as const),
+      content: message.content,
+    }));
+  const model = getModelForProvider("anthropic");
+  const response = await client.messages.create({
+    model,
+    system,
+    messages: conversation,
     temperature,
     max_tokens: maxTokens,
   });
-
-  const content = response.content[0];
-  if (content.type !== "text") {
-    throw new Error("Unexpected content type from Anthropic");
+  const content = response.content.find(part => part.type === "text");
+  if (!content || content.type !== "text") {
+    throw new Error("Provider returned no text content");
   }
 
   return {
@@ -175,148 +253,44 @@ async function callAnthropic(
   };
 }
 
-/**
- * xAI (Grok)
- */
-async function callXAI(
-  messages: LLMMessage[],
-  temperature: number,
-  maxTokens: number
-): Promise<LLMResponse> {
-  const response = await xai.chat.completions.create({
-    model: DEFAULT_MODELS.xai,
-    messages: messages.map(m => ({
-      role: m.role,
-      content: m.content,
-    })),
-    temperature,
-    max_tokens: maxTokens,
-  });
-
-  const choice = response.choices[0];
-  if (!choice?.message?.content) {
-    throw new Error("No content in xAI response");
-  }
-
-  return {
-    content: choice.message.content,
-    provider: "xai",
-    model: response.model,
-    usage: {
-      promptTokens: response.usage?.prompt_tokens || 0,
-      completionTokens: response.usage?.completion_tokens || 0,
-      totalTokens: response.usage?.total_tokens || 0,
-    },
-  };
-}
-
-/**
- * Google (Gemini)
- */
 async function callGemini(
   messages: LLMMessage[],
   temperature: number,
   maxTokens: number
 ): Promise<LLMResponse> {
-  const model = gemini.getGenerativeModel({ 
-    model: DEFAULT_MODELS.google,
-    generationConfig: {
-      temperature,
-      maxOutputTokens: maxTokens,
-    },
+  const client = new GoogleGenerativeAI(requireApiKey("google"));
+  const modelName = getModelForProvider("google");
+  const systemInstruction = messages.find(
+    message => message.role === "system"
+  )?.content;
+  const conversation = messages.filter(message => message.role !== "system");
+  const model = client.getGenerativeModel({
+    model: modelName,
+    systemInstruction,
+    generationConfig: { temperature, maxOutputTokens: maxTokens },
   });
-
-  // Convert messages to Gemini format
-  const systemMessage = messages.find(m => m.role === "system");
-  const conversationMessages = messages.filter(m => m.role !== "system");
-
   const chat = model.startChat({
-    history: conversationMessages.slice(0, -1).map(m => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
+    history: conversation.slice(0, -1).map(message => ({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text: message.content }],
     })),
-    systemInstruction: systemMessage?.content,
   });
-
-  const lastMessage = conversationMessages[conversationMessages.length - 1];
-  const result = await chat.sendMessage(lastMessage.content);
+  const lastMessage = conversation.at(-1);
+  if (!lastMessage) throw new Error("A user message is required");
+  const result = await withTimeout(
+    chat.sendMessage(lastMessage.content),
+    "google"
+  );
   const response = result.response;
 
   return {
     content: response.text(),
     provider: "google",
-    model: DEFAULT_MODELS.google,
+    model: modelName,
     usage: {
-      promptTokens: response.usageMetadata?.promptTokenCount || 0,
-      completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-      totalTokens: response.usageMetadata?.totalTokenCount || 0,
+      promptTokens: response.usageMetadata?.promptTokenCount ?? 0,
+      completionTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
+      totalTokens: response.usageMetadata?.totalTokenCount ?? 0,
     },
   };
 }
-
-/**
- * Perplexity (Sonar)
- */
-async function callPerplexity(
-  messages: LLMMessage[],
-  temperature: number,
-  maxTokens: number
-): Promise<LLMResponse> {
-  const response = await perplexity.chat.completions.create({
-    model: DEFAULT_MODELS.perplexity,
-    messages: messages.map(m => ({
-      role: m.role,
-      content: m.content,
-    })),
-    temperature,
-    max_tokens: maxTokens,
-  });
-
-  const choice = response.choices[0];
-  if (!choice?.message?.content) {
-    throw new Error("No content in Perplexity response");
-  }
-
-  return {
-    content: choice.message.content,
-    provider: "perplexity",
-    model: response.model,
-    usage: {
-      promptTokens: response.usage?.prompt_tokens || 0,
-      completionTokens: response.usage?.completion_tokens || 0,
-      totalTokens: response.usage?.total_tokens || 0,
-    },
-  };
-}
-
-/**
- * Test all LLM providers
- */
-export async function testAllProviders(): Promise<Record<LLMProvider, boolean>> {
-  const results: Record<LLMProvider, boolean> = {
-    openai: false,
-    anthropic: false,
-    xai: false,
-    google: false,
-    perplexity: false,
-  };
-
-  const testMessage: LLMMessage[] = [
-    { role: "system", content: "You are a helpful assistant." },
-    { role: "user", content: "Say 'OK' if you can hear me." },
-  ];
-
-  for (const provider of Object.keys(results) as LLMProvider[]) {
-    try {
-      const response = await callLLM(provider, testMessage, { maxTokens: 10 });
-      results[provider] = response.content.length > 0;
-      console.log(`[LLM Router] ${provider}: ✓`);
-    } catch (error) {
-      console.error(`[LLM Router] ${provider}: ✗`, error);
-      results[provider] = false;
-    }
-  }
-
-  return results;
-}
-

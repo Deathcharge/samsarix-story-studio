@@ -1,0 +1,6 @@
+overrides:
+  path-to-regexp@<0.1.13: 0.1.13
+
+allowBuilds:
+  "@tailwindcss/oxide": true
+  esbuild: true

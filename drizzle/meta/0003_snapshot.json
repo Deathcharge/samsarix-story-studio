@@ -63,9 +63,7 @@
       "compositePrimaryKeys": {
         "agentLogs_id": {
           "name": "agentLogs_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -133,12 +131,8 @@
           "name": "collections_userId_users_id_fk",
           "tableFrom": "collections",
           "tableTo": "users",
-          "columnsFrom": [
-            "userId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -146,9 +140,7 @@
       "compositePrimaryKeys": {
         "collections_id": {
           "name": "collections_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -344,12 +336,8 @@
           "name": "stories_userId_users_id_fk",
           "tableFrom": "stories",
           "tableTo": "users",
-          "columnsFrom": [
-            "userId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -357,17 +345,13 @@
       "compositePrimaryKeys": {
         "stories_id": {
           "name": "stories_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "stories_ritualId_unique": {
           "name": "stories_ritualId_unique",
-          "columns": [
-            "ritualId"
-          ]
+          "columns": ["ritualId"]
         }
       },
       "checkConstraint": {}
@@ -452,9 +436,7 @@
       "compositePrimaryKeys": {
         "ucfStates_id": {
           "name": "ucfStates_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -537,17 +519,13 @@
       "compositePrimaryKeys": {
         "users_id": {
           "name": "users_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "users_openId_unique": {
           "name": "users_openId_unique",
-          "columns": [
-            "openId"
-          ]
+          "columns": ["openId"]
         }
       },
       "checkConstraint": {}
