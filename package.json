@@ -3,13 +3,13 @@
   "version": "1.0.0",
   "description": "Samsarix Story Studio: a local-first, multi-agent fiction workshop with bring-your-own-provider support.",
   "author": "Samsarix LLC",
-  "homepage": "https://github.com/Deathcharge/helix-creative-studio#readme",
+  "homepage": "https://github.com/Deathcharge/samsarix-story-studio#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Deathcharge/helix-creative-studio.git"
+    "url": "git+https://github.com/Deathcharge/samsarix-story-studio.git"
   },
   "bugs": {
-    "url": "https://github.com/Deathcharge/helix-creative-studio/issues",
+    "url": "https://github.com/Deathcharge/samsarix-story-studio/issues",
     "email": "support@samsarix.com"
   },
   "type": "module",
