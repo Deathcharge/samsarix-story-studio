@@ -3,12 +3,20 @@
  * Enhanced version with multi-provider support and agent specialization
  */
 
-import { callLLM, type LLMProvider, type LLMMessage } from "./llmRouter";
-import { 
-  applyPresetMode, 
-  getAgentConfig, 
+import { executeDemoRitual } from "./demoEngine";
+import { randomUUID } from "node:crypto";
+import {
+  callLLM,
+  getConfiguredProviders,
+  resolveConfiguredProvider,
+  type LLMProvider,
+  type LLMMessage,
+} from "./llmRouter";
+import {
+  applyPresetMode,
+  getAgentConfig,
   type AgentConfig,
-  PRESET_MODES 
+  PRESET_MODES,
 } from "./agentConfig";
 
 export interface StoryMetadata {
@@ -18,7 +26,10 @@ export interface StoryMetadata {
   wordCount: number;
   qualityScore: number;
   ethicalApproval: boolean;
-  agentContributions: Record<string, { provider: LLMProvider; tokens: number; role: string }>;
+  agentContributions: Record<
+    string,
+    { provider: string; tokens: number; role: string }
+  >;
   ucfSnapshot: {
     harmony: number;
     prana: number;
@@ -44,7 +55,6 @@ export interface RitualOptions {
     agentId: string;
     provider?: LLMProvider;
     temperature?: number;
-    multiplicity?: number; // How many instances of this agent (1-4)
   }>;
 }
 
@@ -55,18 +65,32 @@ export async function executeCreativeRitualMulti(
   prompt: string,
   options: RitualOptions = {}
 ): Promise<CreativeRitualResult> {
-  const ritualId = `ritual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
+  if (getConfiguredProviders().length === 0) {
+    return executeDemoRitual(prompt);
+  }
+
+  const ritualId = `ritual_${randomUUID()}`;
+
   try {
     console.log(`[Z-88 Multi] Starting ritual ${ritualId}`);
     console.log(`[Z-88 Multi] Preset: ${options.preset || "balanced"}`);
 
     // Step 1: Determine agent configuration
-    const agentSetup = options.customAgents 
+    const preferredAgentSetup = options.customAgents
       ? buildCustomAgentSetup(options.customAgents)
       : applyPresetMode(options.preset || "balanced");
 
-    console.log(`[Z-88 Multi] Agents: ${Array.from(agentSetup.keys()).join(", ")}`);
+    const agentSetup = new Map(
+      [...preferredAgentSetup.entries()].map(([agentId, setup]) => {
+        const provider = resolveConfiguredProvider(setup.provider);
+        if (!provider) throw new Error("No LLM provider is configured");
+        return [agentId, { ...setup, provider }];
+      })
+    );
+
+    console.log(
+      `[Z-88 Multi] Agents: ${Array.from(agentSetup.keys()).join(", ")}`
+    );
 
     // Step 2: Phase 1 - Oracle (Plot Architecture)
     const oracleSetup = agentSetup.get("oracle");
@@ -95,7 +119,7 @@ Focus on dramatic structure, pacing, and character arcs. Be specific about key p
     // Step 3: Phase 2 - Lumina (Character Development)
     const luminaSetup = agentSetup.get("lumina");
     let characterDepth = "";
-    
+
     if (luminaSetup) {
       characterDepth = await invokeAgent(
         luminaSetup.config,
@@ -120,7 +144,7 @@ Make the character feel authentic and emotionally resonant.`
     // Step 4: Phase 3 - Gemini (World-Building)
     const geminiSetup = agentSetup.get("gemini");
     let worldDetails = "";
-    
+
     if (geminiSetup) {
       worldDetails = await invokeAgent(
         geminiSetup.config,
@@ -145,7 +169,7 @@ Make the world feel lived-in and believable.`
     // Step 5: Phase 4 - Agni (Creative Twists)
     const agniSetup = agentSetup.get("agni");
     let creativeTwists = "";
-    
+
     if (agniSetup) {
       creativeTwists = await invokeAgent(
         agniSetup.config,
@@ -170,7 +194,7 @@ Be original and daring.`
     // Step 6: Researcher (Fact-Checking) - Optional
     const researcherSetup = agentSetup.get("researcher");
     let researchNotes = "";
-    
+
     if (researcherSetup) {
       researchNotes = await invokeAgent(
         researcherSetup.config,
@@ -191,18 +215,21 @@ Provide:
 Keep it brief but credible.`
       );
 
-      console.log(`[Z-88 Multi] Researcher complete (${researcherSetup.provider})`);
+      console.log(
+        `[Z-88 Multi] Researcher complete (${researcherSetup.provider})`
+      );
     }
 
     // Step 7: Synthesis - Generate final story
     const synthesisProvider = oracleSetup.provider; // Use Oracle's provider for synthesis
-    
+
     const finalStory = await callLLM(
       synthesisProvider,
       [
         {
           role: "system",
-          content: "You are a master cyberpunk storyteller. Synthesize the following creative elements into a cohesive, engaging short story (1800-2500 words).",
+          content:
+            "You are a master cyberpunk storyteller. Synthesize the following creative elements into a cohesive, engaging short story (1800-2500 words).",
         },
         {
           role: "user",
@@ -242,7 +269,7 @@ Begin the story directly—no meta-commentary.`,
     // Step 8: Claude (Quality Assessment)
     const claudeSetup = agentSetup.get("claude");
     let qualityScore = 0.85;
-    
+
     if (claudeSetup) {
       const qualityAssessment = await invokeAgent(
         claudeSetup.config,
@@ -273,7 +300,7 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
     // Step 9: Kavach (Ethical Review)
     const kavachSetup = agentSetup.get("kavach");
     let ethicalApproval = true;
-    
+
     if (kavachSetup) {
       const ethicalReview = await invokeAgent(
         kavachSetup.config,
@@ -291,19 +318,28 @@ ${finalStory.content.substring(0, 1500)}...
 Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
       );
 
-      ethicalApproval = ethicalReview.toUpperCase().includes("APPROVED");
-      console.log(`[Z-88 Multi] Kavach review: ${ethicalApproval ? "APPROVED" : "REJECTED"}`);
+      const normalizedReview = ethicalReview.toUpperCase();
+      ethicalApproval =
+        normalizedReview.includes("APPROVED") &&
+        !normalizedReview.includes("REJECTED");
+      console.log(
+        `[Z-88 Multi] Kavach review: ${ethicalApproval ? "APPROVED" : "REJECTED"}`
+      );
     }
 
     // Step 10: Extract title
-    const titleMatch = finalStory.content.match(/^#\s+(.+)$/m) || 
-                       finalStory.content.match(/^(.+)$/m);
+    const titleMatch =
+      finalStory.content.match(/^#\s+(.+)$/m) ||
+      finalStory.content.match(/^(.+)$/m);
     const title = titleMatch ? titleMatch[1].trim() : "Untitled Story";
 
     // Step 11: Calculate metadata
     const wordCount = finalStory.content.split(/\s+/).length;
-    
-    const agentContributions: Record<string, { provider: LLMProvider; tokens: number; role: string }> = {};
+
+    const agentContributions: Record<
+      string,
+      { provider: string; tokens: number; role: string }
+    > = {};
     agentSetup.forEach((setup, agentId) => {
       agentContributions[agentId] = {
         provider: setup.provider,
@@ -323,9 +359,9 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
       ucfSnapshot: {
         harmony: 0.68 + (qualityScore - 0.85) * 0.2,
         prana: 0.75,
-        drishti: 0.80,
+        drishti: 0.8,
         klesha: ethicalApproval ? 0.02 : 0.15,
-        resilience: 1.10,
+        resilience: 1.1,
         zoom: 1.15,
       },
     };
@@ -339,7 +375,6 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
       storyText: finalStory.content,
       metadata,
     };
-
   } catch (error) {
     console.error(`[Z-88 Multi] Ritual ${ritualId} failed:`, error);
     return {
@@ -367,7 +402,10 @@ async function invokeAgent(
     { role: "user", content: userPrompt },
   ];
 
-  const response = await callLLM(provider, messages, { temperature, maxTokens: 2000 });
+  const response = await callLLM(provider, messages, {
+    temperature,
+    maxTokens: 2000,
+  });
   return response.content;
 }
 
@@ -379,10 +417,15 @@ function buildCustomAgentSetup(
     agentId: string;
     provider?: LLMProvider;
     temperature?: number;
-    multiplicity?: number;
   }>
-): Map<string, { config: AgentConfig; provider: LLMProvider; temperature: number }> {
-  const result = new Map();
+): Map<
+  string,
+  { config: AgentConfig; provider: LLMProvider; temperature: number }
+> {
+  const result = new Map<
+    string,
+    { config: AgentConfig; provider: LLMProvider; temperature: number }
+  >();
 
   for (const custom of customAgents) {
     const config = getAgentConfig(custom.agentId);
@@ -390,15 +433,12 @@ function buildCustomAgentSetup(
 
     const provider = custom.provider || config.defaultProvider;
     const temperature = custom.temperature ?? config.defaultTemperature;
-    const multiplicity = custom.multiplicity || 1;
-
-    // Handle multiplicity (e.g., 3x Oracle agents)
-    for (let i = 0; i < multiplicity; i++) {
-      const key = multiplicity > 1 ? `${custom.agentId}_${i + 1}` : custom.agentId;
-      result.set(key, { config, provider, temperature });
-    }
+    result.set(custom.agentId, { config, provider, temperature });
   }
+
+  if (!result.has("oracle"))
+    throw new Error("The Oracle plot agent is required");
+  if (result.size > 7) throw new Error("A ritual may use at most seven agents");
 
   return result;
 }
-

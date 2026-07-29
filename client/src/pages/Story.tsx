@@ -1,303 +1,391 @@
-import React from "react";
+import {
+  ArrowLeft,
+  Brain,
+  Calendar,
+  CircleAlert,
+  Download,
+  FileText,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+  Zap,
+} from "lucide-react";
+import { Link, useLocation, useParams } from "wouter";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { 
-  Zap, 
-  ArrowLeft, 
-  Calendar, 
-  FileText, 
-  TrendingUp, 
-  Shield, 
-  Brain,
-  Download,
-  Share2
-} from "lucide-react";
-import { Link, useParams, useLocation } from "wouter";
-import { useAuth } from "@/_core/hooks/useAuth";
+
+type Contribution = { name: string; provider?: string; role?: string };
+
+function normalizeContributions(value: unknown): Contribution[] {
+  if (Array.isArray(value)) {
+    return value.map(item => ({ name: String(item) }));
+  }
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).map(
+    ([name, metadata]) => {
+      if (!metadata || typeof metadata !== "object") return { name };
+      const details = metadata as Record<string, unknown>;
+      return {
+        name,
+        provider:
+          typeof details.provider === "string" ? details.provider : undefined,
+        role: typeof details.role === "string" ? details.role : undefined,
+      };
+    }
+  );
+}
 
 export default function Story() {
   const params = useParams<{ id: string }>();
   const ritualId = params.id || "";
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
-
-  const { data: story, isLoading } = trpc.stories.getByRitualId.useQuery(
+  const storyQuery = trpc.stories.getByRitualId.useQuery(
     { ritualId },
-    { enabled: !!ritualId }
+    { enabled: Boolean(ritualId), retry: false }
   );
-  
-  const continueStoryMutation = trpc.stories.continueStory.useMutation({
-    onSuccess: (data) => {
-      setLocation(`/generate?prompt=${encodeURIComponent(data.prompt)}&seriesId=${data.seriesId}&chapterNumber=${data.chapterNumber}&previousChapterId=${data.previousChapterId}`);
+  const story = storyQuery.data;
+  const trajectoryQuery = trpc.stories.getUcfTrajectory.useQuery(
+    { ritualId },
+    { enabled: Boolean(story?.ritualId), retry: false }
+  );
+  const agentLogsQuery = trpc.stories.getAgentLogs.useQuery(
+    { ritualId },
+    { enabled: Boolean(story?.ritualId), retry: false }
+  );
+  const continueMutation = trpc.stories.continueStory.useMutation({
+    onSuccess: data => {
+      const query = new URLSearchParams({
+        prompt: data.prompt,
+        seriesId: data.seriesId,
+        chapterNumber: String(data.chapterNumber),
+        previousChapterId: String(data.previousChapterId),
+      });
+      setLocation(`/generate?${query.toString()}`);
     },
   });
-  const { data: ucfTrajectory } = trpc.stories.getUcfTrajectory.useQuery(
-    { ritualId: story?.ritualId || "" },
-    { enabled: !!story?.ritualId }
-  );
-  const { data: agentLogs } = trpc.stories.getAgentLogs.useQuery(
-    { ritualId: story?.ritualId || "" },
-    { enabled: !!story?.ritualId }
-  );
 
-  if (isLoading) {
+  if (storyQuery.isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Zap className="w-12 h-12 text-primary animate-pulse mx-auto" />
-          <p className="text-muted-foreground">Loading story...</p>
-        </div>
-      </div>
+      <main className="min-h-screen grid place-items-center" aria-busy="true">
+        <Loader2
+          className="h-8 w-8 animate-spin text-primary"
+          aria-label="Loading story"
+        />
+      </main>
+    );
+  }
+
+  if (storyQuery.error) {
+    return (
+      <main className="min-h-screen grid place-items-center px-4">
+        <Card
+          className="max-w-lg space-y-5 border-destructive/30 p-8 text-center"
+          role="alert"
+        >
+          <CircleAlert className="mx-auto h-10 w-10 text-destructive" />
+          <div>
+            <h1 className="text-2xl font-bold">
+              The story could not be loaded
+            </h1>
+            <p className="mt-2 text-muted-foreground">
+              {storyQuery.error.message}
+            </p>
+          </div>
+          <div className="flex justify-center gap-3">
+            <Button onClick={() => storyQuery.refetch()}>Try again</Button>
+            <Button asChild variant="outline">
+              <Link href="/archive">Back to archive</Link>
+            </Button>
+          </div>
+        </Card>
+      </main>
     );
   }
 
   if (!story) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="p-12 text-center space-y-4">
-          <h2 className="text-2xl font-bold">Story Not Found</h2>
-          <p className="text-muted-foreground">The requested story could not be found.</p>
+      <main className="min-h-screen grid place-items-center px-4">
+        <Card className="max-w-lg space-y-5 p-8 text-center">
+          <FileText className="mx-auto h-10 w-10 text-muted-foreground" />
+          <div>
+            <h1 className="text-2xl font-bold">Story not found</h1>
+            <p className="mt-2 text-muted-foreground">
+              It may have been removed or belongs to another local profile.
+            </p>
+          </div>
           <Button asChild>
-            <Link href="/archive">Back to Archive</Link>
+            <Link href="/archive">Back to archive</Link>
           </Button>
         </Card>
-      </div>
+      </main>
     );
   }
 
-  const agentContributions = Array.isArray(story.agentContributions) 
-    ? story.agentContributions 
-    : JSON.parse(story.agentContributions || "[]");
-
+  const contributions = normalizeContributions(story.agentContributions);
+  const isDemo = contributions.some(
+    contribution => contribution.provider === "demo"
+  );
   const handleDownload = () => {
-    const blob = new Blob([story.content], { type: "text/markdown" });
+    const blob = new Blob([story.content], {
+      type: "text/markdown;charset=utf-8",
+    });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${story.title.replace(/[^a-z0-9]/gi, "_")}.md`;
-    a.click();
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${
+      story.title
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase() || "story"
+    }.md`;
+    anchor.click();
     URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="border-b border-border/50 backdrop-blur-sm bg-background/80 sticky top-0 z-50">
-        <div className="container flex items-center justify-between h-16">
-          <Link href="/">
-            <a className="flex items-center gap-2">
-              <Zap className="w-6 h-6 text-primary" />
-              <span className="text-xl font-bold glow-cyan">Helix Creative Studio</span>
-            </a>
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/90 backdrop-blur-xl">
+        <div className="container flex h-16 items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 font-semibold">
+            <Zap className="h-5 w-5 text-primary" />
+            Samsarix Story Studio
           </Link>
-          <nav className="flex items-center gap-6">
-            <Link href="/generate">
-              <a className="text-sm hover:text-primary transition-colors">Generate</a>
+          <nav
+            aria-label="Primary navigation"
+            className="flex items-center gap-5 text-sm"
+          >
+            <Link
+              href="/generate"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Studio
             </Link>
-            <Link href="/archive">
-              <a className="text-sm hover:text-primary transition-colors">Archive</a>
+            <Link
+              href="/archive"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Archive
             </Link>
           </nav>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 container py-12">
-        <div className="max-w-5xl mx-auto space-y-8">
-          {/* Back Button */}
-          <Link href="/archive">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Archive
-            </Button>
-          </Link>
+      <main className="container py-10 md:py-14">
+        <article className="mx-auto max-w-5xl space-y-8">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/archive">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Archive
+            </Link>
+          </Button>
 
-          {/* Story Header */}
-          <div className="space-y-4">
-            <h1 className="text-4xl font-bold">{story.title}</h1>
-            
-            <div className="flex flex-wrap gap-3">
+          <header className="space-y-5 border-b border-border/50 pb-8">
+            <div className="flex flex-wrap items-center gap-2">
+              {isDemo && (
+                <Badge className="bg-amber-300 text-amber-950 hover:bg-amber-300">
+                  Deterministic demo
+                </Badge>
+              )}
+              {story.seriesId && (
+                <Badge variant="outline">
+                  Chapter {story.chapterNumber ?? "—"}
+                </Badge>
+              )}
+            </div>
+            <h1 className="max-w-4xl text-4xl font-bold tracking-tight md:text-5xl">
+              {story.title}
+            </h1>
+            <p className="max-w-3xl text-base leading-7 text-muted-foreground">
+              {story.prompt}
+            </p>
+            <div className="flex flex-wrap gap-2">
               <Badge variant="outline">
-                <FileText className="w-3 h-3 mr-1" />
+                <FileText className="mr-1 h-3 w-3" />
                 {story.wordCount} words
               </Badge>
               <Badge variant="outline">
-                <TrendingUp className="w-3 h-3 mr-1" />
-                Quality {(story.qualityScore * 100).toFixed(0)}%
+                <Sparkles className="mr-1 h-3 w-3" />
+                {Math.round(story.qualityScore * 100)}% advisory score
               </Badge>
               {story.ethicalApproval && (
-                <Badge variant="outline" className="text-green-400">
-                  <Shield className="w-3 h-3 mr-1" />
-                  Ethically Approved
+                <Badge variant="outline">
+                  <ShieldCheck className="mr-1 h-3 w-3" />
+                  Automated review passed
                 </Badge>
               )}
               <Badge variant="outline">
-                <Calendar className="w-3 h-3 mr-1" />
+                <Calendar className="mr-1 h-3 w-3" />
                 {new Date(story.createdAt).toLocaleDateString()}
               </Badge>
             </div>
-
-            <div className="flex gap-3">
-              <Button onClick={handleDownload} variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                Download
+            <div className="flex flex-wrap gap-3">
+              <Button onClick={handleDownload} variant="outline">
+                <Download className="mr-2 h-4 w-4" />
+                Download Markdown
               </Button>
-              <Button variant="outline" size="sm">
-                <Share2 className="w-4 h-4 mr-2" />
-                Share
+              <Button
+                onClick={() =>
+                  continueMutation.mutate({ previousStoryId: story.id })
+                }
+                disabled={continueMutation.isPending}
+              >
+                {continueMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Zap className="mr-2 h-4 w-4" />
+                )}
+                Continue story
               </Button>
-              {user && story.id && (
-                <Button
-                  onClick={() => {
-                    continueStoryMutation.mutate({ previousStoryId: story.id });
-                  }}
-                  disabled={continueStoryMutation.isPending}
-                  className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30"
-                  size="sm"
-                >
-                  {continueStoryMutation.isPending ? (
-                    <>
-                      <Brain className="w-4 h-4 mr-2 animate-pulse" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4 mr-2" />
-                      Continue Story
-                    </>
-                  )}
-                </Button>
-              )}
             </div>
-          </div>
+            {continueMutation.error && (
+              <p role="alert" className="text-sm text-destructive">
+                {continueMutation.error.message}
+              </p>
+            )}
+            {isDemo && (
+              <p className="text-sm text-muted-foreground">
+                This sample was assembled locally from a fixed template. It did
+                not call or imitate a named model.
+              </p>
+            )}
+          </header>
 
-          {/* Tabs */}
           <Tabs defaultValue="story" className="space-y-6">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="story">Story</TabsTrigger>
-              <TabsTrigger value="metadata">Metadata</TabsTrigger>
-              <TabsTrigger value="agents">Agent Logs</TabsTrigger>
+              <TabsTrigger value="story">Draft</TabsTrigger>
+              <TabsTrigger value="process">Process</TabsTrigger>
+              <TabsTrigger value="logs">Logs</TabsTrigger>
             </TabsList>
 
-            {/* Story Content */}
             <TabsContent value="story">
-              <Card className="p-8">
-                <div className="prose prose-invert max-w-none">
-                  <div className="text-sm text-muted-foreground mb-4 pb-4 border-b border-border/50">
-                    <strong>Prompt:</strong> {story.prompt}
-                  </div>
-                  <div className="whitespace-pre-wrap leading-relaxed">
-                    {story.content}
-                  </div>
-                </div>
+              <Card className="story-prose p-6 md:p-10">
+                {String(story.content)
+                  .split(/\n\s*\n/)
+                  .map((paragraph: string, index: number) =>
+                    paragraph.startsWith("# ") ? null : (
+                      <p key={index}>{paragraph}</p>
+                    )
+                  )}
               </Card>
             </TabsContent>
 
-            {/* Metadata */}
-            <TabsContent value="metadata">
-              <div className="grid gap-6 md:grid-cols-2">
-                <Card className="p-6 space-y-4">
-                  <h3 className="text-lg font-bold flex items-center gap-2">
-                    <Brain className="w-5 h-5 text-primary" />
-                    UCF Snapshot
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Harmony</span>
-                      <span className="font-mono text-primary">{story.ucfHarmony.toFixed(4)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Prana</span>
-                      <span className="font-mono text-secondary">{story.ucfPrana.toFixed(4)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Drishti</span>
-                      <span className="font-mono text-accent">{story.ucfDrishti.toFixed(4)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Klesha</span>
-                      <span className="font-mono">{story.ucfKlesha.toFixed(4)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Resilience</span>
-                      <span className="font-mono">{story.ucfResilience.toFixed(4)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Zoom</span>
-                      <span className="font-mono">{story.ucfZoom.toFixed(4)}</span>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="p-6 space-y-4">
-                  <h3 className="text-lg font-bold">Agent Contributions</h3>
-                  <div className="space-y-2">
-                    {agentContributions.map((agent: string, index: number) => (
-                      <div key={index} className="flex items-center gap-2 text-sm">
-                        <div className="w-2 h-2 rounded-full bg-primary" />
-                        <span>{agent}</span>
+            <TabsContent value="process">
+              <div className="grid gap-5 md:grid-cols-2">
+                <Card className="p-6">
+                  <h2 className="flex items-center gap-2 text-lg font-bold">
+                    <Brain className="h-5 w-5 text-primary" />
+                    Creative signal snapshot
+                  </h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Legacy heuristic values recorded by the workflow. They are
+                    not scientific measurements.
+                  </p>
+                  <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                    {[
+                      ["Harmony", story.ucfHarmony],
+                      ["Energy", story.ucfPrana],
+                      ["Focus", story.ucfDrishti],
+                      ["Friction", story.ucfKlesha],
+                      ["Resilience", story.ucfResilience],
+                      ["Scope", story.ucfZoom],
+                    ].map(([label, value]) => (
+                      <div
+                        key={String(label)}
+                        className="rounded-lg border border-border/50 p-3"
+                      >
+                        <dt className="text-muted-foreground">{label}</dt>
+                        <dd className="mt-1 font-mono">
+                          {Number(value).toFixed(2)}
+                        </dd>
                       </div>
                     ))}
+                  </dl>
+                </Card>
+                <Card className="p-6">
+                  <h2 className="text-lg font-bold">Agent contributions</h2>
+                  <div className="mt-5 space-y-3">
+                    {contributions.length > 0 ? (
+                      contributions.map(contribution => (
+                        <div
+                          key={contribution.name}
+                          className="rounded-lg border border-border/50 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <strong className="capitalize">
+                              {contribution.name}
+                            </strong>
+                            {contribution.provider && (
+                              <span className="status-pill">
+                                {contribution.provider}
+                              </span>
+                            )}
+                          </div>
+                          {contribution.role && (
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {contribution.role}
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No contribution metadata was recorded.
+                      </p>
+                    )}
                   </div>
                 </Card>
-
-                {ucfTrajectory && ucfTrajectory.length > 0 && (
-                  <Card className="p-6 space-y-4 md:col-span-2">
-                    <h3 className="text-lg font-bold">UCF Trajectory</h3>
-                    <div className="space-y-2 text-sm">
-                      <p className="text-muted-foreground">
-                        Showing {ucfTrajectory.length} consciousness state snapshots during ritual execution
-                      </p>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        {ucfTrajectory.slice(0, 6).map((state, index) => (
-                          <div key={index} className="p-3 rounded border border-border/50 bg-card/50">
-                            <div className="font-medium mb-1">Step {state.step}</div>
-                            <div className="space-y-1 text-muted-foreground">
-                              <div>H: {state.harmony.toFixed(3)}</div>
-                              <div>P: {state.prana.toFixed(3)}</div>
-                              <div>D: {state.drishti.toFixed(3)}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                {trajectoryQuery.data && trajectoryQuery.data.length > 0 && (
+                  <Card className="p-6 md:col-span-2">
+                    <h2 className="text-lg font-bold">Recorded trajectory</h2>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {trajectoryQuery.data.length} workflow snapshots are
+                      available from the legacy engine.
+                    </p>
                   </Card>
                 )}
               </div>
             </TabsContent>
 
-            {/* Agent Logs */}
-            <TabsContent value="agents">
+            <TabsContent value="logs">
               <div className="space-y-4">
-                {agentLogs && agentLogs.length > 0 ? (
-                  agentLogs.map((log, index) => (
-                    <Card key={index} className="p-6 space-y-3">
+                {agentLogsQuery.isLoading ? (
+                  <Card className="p-8 text-center text-muted-foreground">
+                    Loading logs…
+                  </Card>
+                ) : agentLogsQuery.data && agentLogsQuery.data.length > 0 ? (
+                  agentLogsQuery.data.map(log => (
+                    <Card key={log.id} className="p-6">
                       <div className="flex items-center gap-3">
-                        <span className="text-2xl">{log.agentSymbol}</span>
+                        <span className="text-xl" aria-hidden="true">
+                          {log.agentSymbol}
+                        </span>
                         <div>
-                          <h4 className="font-bold">{log.agentName}</h4>
-                          <p className="text-sm text-muted-foreground">{log.role}</p>
+                          <h2 className="font-bold">{log.agentName}</h2>
+                          <p className="text-sm text-muted-foreground">
+                            {log.role}
+                          </p>
                         </div>
                       </div>
-                      <div className="text-sm whitespace-pre-wrap leading-relaxed border-t border-border/50 pt-3">
+                      <p className="mt-4 whitespace-pre-wrap border-t border-border/50 pt-4 text-sm leading-6">
                         {log.content}
-                      </div>
+                      </p>
                     </Card>
                   ))
                 ) : (
-                  <Card className="p-12 text-center">
-                    <p className="text-muted-foreground">No agent logs available</p>
+                  <Card className="p-10 text-center">
+                    <p className="text-muted-foreground">
+                      No detailed agent logs were stored for this draft.
+                    </p>
                   </Card>
                 )}
               </div>
             </TabsContent>
           </Tabs>
-        </div>
+        </article>
       </main>
     </div>
   );
 }
-

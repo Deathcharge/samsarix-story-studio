@@ -1,98 +1,104 @@
 Business Source License 1.1
 
-License text copyright (c) 2020 MariaDB plc, All Rights Reserved.
-"Business Source License" is a trademark of MariaDB plc.
-
 Parameters
 
-Licensor:             Helix Collective
-Licensed Work:        Helix Licensing System
-                      The Licensed Work is (c) 2024 Helix Collective
-Additional Use Grant: None
+Licensor:             Samsarix LLC
 
-Change Date:          June 16, 2027
+Licensed Work:        Samsarix Story Studio
+                      The Licensed Work is Copyright (c) 2024-2026
+                      Samsarix LLC.
+
+Additional Use Grant: You may make production use of the Licensed Work for
+                      your own personal, educational, research, charitable,
+                      or internal business purposes. This Additional Use
+                      Grant does not permit using the Licensed Work to offer
+                      third parties a paid or revenue-generating product or
+                      service whose primary purpose is to provide
+                      substantially the same functionality as the Licensed
+                      Work. That use requires a separate commercial license
+                      from the Licensor.
+
+Change Date:          2030-07-28
 
 Change License:       Apache License, Version 2.0
 
-For information about alternative licensing arrangements for the Licensed Work,
-please contact licensing@helixcollective.dev
-
-Notice
+For information about commercial licensing arrangements, contact
+contact@samsarix.com.
 
 Business Source License 1.1
 
-This Business Source License (this "Agreement") sets forth the terms and conditions
-under which Helix Collective ("Licensor") makes available certain software made
-available by Licensor under this Agreement (the "Licensed Work"). BY INSTALLING,
-COPYING, CONFIGURING, ACCESSING, OR USING THE LICENSED WORK, YOU AGREE THAT YOU
-HAVE READ, UNDERSTOOD, AND AGREE TO BE BOUND BY ALL OF THE TERMS AND CONDITIONS
-OF THIS AGREEMENT. IF YOU DO NOT AGREE WITH ALL OF THE TERMS AND CONDITIONS OF
-THIS AGREEMENT, DO NOT INSTALL, COPY, CONFIGURE, ACCESS, OR USE THE LICENSED WORK.
+License text copyright © 2024 MariaDB plc, All Rights Reserved.
+“Business Source License” is a trademark of MariaDB plc.
 
-1. Licensor hereby grants you the right to copy, modify, create derivative works,
-redistribute, and make non-production use of the Licensed Work. The foregoing rights
-are granted for a term of three (3) years from the date of first distribution of a
-particular version of the Licensed Work (the "Initial Release Date"). Upon expiration
-of the foregoing term, all rights granted to you under this Agreement for that
-version of the Licensed Work shall terminate, and the terms of the Change License
-shall apply.
+Terms
 
-2. In addition to the rights granted in Section 1, Licensor hereby grants you a
-limited license to make production use of the Licensed Work. Production use entails
-launching for off-premises commercial advantage or monetary revenue-generating
-endeavor with the Licensed Work, including as part of an application or service
-the output of which is used for commercial advantage or to generate monetary revenue.
-If, at any time (including at the time of initial deployment of production use),
-the monthly volume of such production use exceeds 1,000 API calls or equivalent
-usage metric, then you must secure a commercial license key from Licensor or pay
-the fees specified in the pricing schedule at https://helixcollective.dev/pricing.
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work. The
+Licensor may make an Additional Use Grant, above, permitting limited
+production use.
 
-3. Failure to pay required fees does not relieve you of your obligation to pay such
-fees. If you do not pay the required fees, Licensor may, at its sole discretion,
-terminate your rights under this Agreement.
+Effective on the Change Date, or the fourth anniversary of the first publicly
+available distribution of a specific version of the Licensed Work under this
+License, whichever comes first, the Licensor hereby grants you rights under
+the terms of the Change License, and the rights granted in the paragraph
+above terminate.
 
-4. The Licensed Work is provided on an "AS IS" basis. Licensor provides the Licensed
-Work (and each contributor provides its contributions) on an "AS IS" BASIS, WITHOUT
-WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without
-limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT,
-MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible
-for determining the appropriateness of using or redistributing the Licensed Work
-and assume all risks associated with your exercise of permissions under this License.
+If your use of the Licensed Work does not comply with the requirements
+currently in effect as described in this License, you must purchase a
+commercial license from the Licensor, its affiliated entities, or authorized
+resellers, or you must refrain from using the Licensed Work.
 
-5. In no event and under no legal theory, whether in tort (including negligence),
-contract, or otherwise, unless required by applicable law (such as deliberate and
-grossly negligent acts) or agreed to in writing, shall any Licensor be liable to
-you for damages, including any direct, indirect, special, incidental, or
-consequential damages of any character arising as a result of this Agreement or
-out of the use or inability to use the Licensed Work (including but not limited to
-damages for loss of goodwill, work stoppage, computer failure or malfunction, or
-any and all other commercial damages or losses), even if such Licensor has been
-advised of the possibility of such damages.
+All copies of the original and modified Licensed Work, and derivative works
+of the Licensed Work, are subject to this License. This License applies
+separately for each version of the Licensed Work and the Change Date may vary
+for each version of the Licensed Work released by Licensor.
 
-6. This Agreement will be governed by and construed in accordance with the laws of
-the jurisdiction in which Licensor resides, excluding its conflicts of law
-provisions. If you are located in the United States, this Agreement shall be
-governed by the laws of the State of California, excluding its conflicts of law
-provisions. The application of the United Nations Convention on Contracts for the
-International Sale of Goods is expressly excluded.
+You must conspicuously display this License on each original or modified copy
+of the Licensed Work. If you receive the Licensed Work in original or modified
+form from a third party, the terms and conditions set forth in this License
+apply to your use of that work.
 
-7. If any provision of this Agreement is found to be unenforceable or invalid by a
-court of competent jurisdiction, the remaining provisions shall continue in full
-force and effect, and the unenforceable provision shall be modified to the minimum
-extent necessary to make it enforceable.
+Any use of the Licensed Work in violation of this License will automatically
+terminate your rights under this License for the current and all other
+versions of the Licensed Work.
 
-8. The Licensed Work may be subject to export laws and regulations of the United
-States and other countries. You agree to strictly comply with all such laws and
-regulations and acknowledge that You have the responsibility to obtain such
-authorizations as may be required.
+This License does not grant you any right in any trademark or logo of Licensor
+or its affiliates (provided that you may use a trademark or logo of Licensor
+as expressly required by this License).
 
-9. Licensor may assign its rights and obligations under this Agreement to any
-successor in interest, provided that such successor agrees to be bound by the terms
-of this Agreement.
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON AN
+“AS IS” BASIS. LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS,
+EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND
+TITLE.
 
-10. This Agreement, together with the exhibits and schedules attached hereto,
-constitutes the entire agreement between the parties with respect to the subject
-matter hereof and supersedes all prior negotiations, representations, and agreements,
-whether written or oral, relating to such subject matter.
+MariaDB hereby grants you permission to use this License’s text to license
+your works, and to refer to it using the trademark “Business Source License”,
+as long as you comply with the Covenants of Licensor below.
 
-For commercial licensing inquiries, please contact: licensing@helixcollective.dev
+Covenants of Licensor
+
+In consideration of the right to use this License’s text and the “Business
+Source License” name and trademark, Licensor covenants to MariaDB, and to all
+other recipients of the licensed work to be provided by Licensor:
+
+1. To specify as the Change License the GPL Version 2.0 or any later version,
+   or a license that is compatible with GPL Version 2.0 or a later version,
+   where “compatible” means that software provided under the Change License
+   can be included in a program with software provided under GPL Version 2.0
+   or a later version. Licensor may specify additional Change Licenses without
+   limitation.
+
+2. To either: (a) specify an additional grant of rights to use that does not
+   impose any additional restriction on the right granted in this License, as
+   the Additional Use Grant; or (b) insert the text “None”.
+
+3. To specify a Change Date.
+
+4. Not to modify this License in any other way.
+
+Notice
+
+The Business Source License (this document, or the “License”) is not an Open
+Source license. However, the Licensed Work will eventually be made available
+under an Open Source License, as stated in this License.

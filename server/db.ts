@@ -1,172 +1,254 @@
-import { eq, and } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, stories, InsertStory, ucfStates, InsertUcfState, agentLogs, InsertAgentLog } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  agentLogs,
+  type InsertAgentLog,
+  type InsertStory,
+  type InsertUcfState,
+  type InsertUser,
+  stories,
+  ucfStates,
+  users,
+} from "../drizzle/schema";
+import * as localStore from "./localStore";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let database: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
+export function getStorageMode() {
+  return process.env.DATABASE_URL ? "mysql" : "local-file";
+}
+
+export function getLocalDataPath() {
+  return getStorageMode() === "local-file"
+    ? localStore.getLocalDataPath()
+    : null;
+}
+
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+  if (!database && process.env.DATABASE_URL) {
+    database = drizzle(process.env.DATABASE_URL);
   }
-  return _db;
+  return database;
+}
+
+async function requireDb() {
+  const connection = await getDb();
+  if (!connection) {
+    throw new Error("MySQL storage is not configured");
+  }
+  return connection;
+}
+
+export async function getLocalUser() {
+  if (getStorageMode() === "local-file") return localStore.getLocalUser();
+
+  const openId = "local-writer";
+  await upsertUser({
+    openId,
+    name: process.env.LOCAL_USER_NAME?.trim() || "Local Writer",
+    loginMethod: "local",
+    role: "admin",
+    lastSignedIn: new Date(),
+  });
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new Error("Could not initialize the local MySQL user");
+  return user;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
+  if (!user.openId) throw new Error("User openId is required for upsert");
+  if (getStorageMode() === "local-file") return localStore.upsertUser(user);
+
+  const connection = await requireDb();
+  const values: InsertUser = { openId: user.openId };
+  const updateSet: Record<string, unknown> = {};
+
+  for (const field of ["name", "email", "loginMethod"] as const) {
+    const value = user[field];
+    if (value === undefined) continue;
+    values[field] = value ?? null;
+    updateSet[field] = value ?? null;
   }
 
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
+  if (user.lastSignedIn !== undefined) {
+    values.lastSignedIn = user.lastSignedIn;
+    updateSet.lastSignedIn = user.lastSignedIn;
+  }
+  if (user.role !== undefined) {
+    values.role = user.role;
+    updateSet.role = user.role;
   }
 
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
+  values.lastSignedIn ??= new Date();
+  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
 
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+  await connection.insert(users).values(values).onDuplicateKeyUpdate({
+    set: updateSet,
+  });
 }
 
 export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
+  if (getStorageMode() === "local-file") {
+    return localStore.getUserByOpenId(openId);
   }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
-}
-
-// Story queries
-export async function createStory(story: InsertStory) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(stories).values(story);
-  return result;
-}
-
-export async function getStoryById(id: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(stories).where(eq(stories.id, id)).limit(1);
-  return result[0];
-}
-
-export async function getStoryByRitualId(ritualId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(stories).where(eq(stories.ritualId, ritualId)).limit(1);
-  return result[0];
-}
-
-export async function getAllStories(userId?: number) {
-  const db = await getDb();
-  if (!db) return [];
-  if (userId) {
-    return await db.select().from(stories).where(eq(stories.userId, userId)).orderBy(stories.createdAt);
-  }
-  return await db.select().from(stories).orderBy(stories.createdAt);
-}
-
-export async function updateStory(id: number, data: Partial<InsertStory>) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return await db.update(stories).set(data).where(eq(stories.id, id));
-}
-
-export async function getStoryBySeriesAndChapter(seriesId: string, chapterNumber: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(stories)
-    .where(and(
-      eq(stories.seriesId, seriesId),
-      eq(stories.chapterNumber, chapterNumber)
-    ))
+  const connection = await requireDb();
+  const result = await connection
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
     .limit(1);
   return result[0];
 }
 
-export async function getStoriesBySeries(seriesId: string) {
-  const db = await getDb();
-  if (!db) return [];
-  return await db.select().from(stories)
-    .where(eq(stories.seriesId, seriesId));
+export async function createStory(story: InsertStory) {
+  if (getStorageMode() === "local-file") return localStore.createStory(story);
+  return (await requireDb()).insert(stories).values(story);
 }
 
-// UCF state queries
+export async function getStoryById(id: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoryById(id, userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(stories)
+    .where(
+      and(
+        eq(stories.id, id),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    )
+    .limit(1);
+  return result[0];
+}
+
+export async function getStoryByRitualId(ritualId: string, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoryByRitualId(ritualId, userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(stories)
+    .where(
+      and(
+        eq(stories.ritualId, ritualId),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    )
+    .limit(1);
+  return result[0];
+}
+
+export async function getAllStories(userId: number) {
+  if (getStorageMode() === "local-file")
+    return localStore.getAllStories(userId);
+  return (await requireDb())
+    .select()
+    .from(stories)
+    .where(and(eq(stories.userId, userId), isNull(stories.deletedAt)))
+    .orderBy(desc(stories.createdAt));
+}
+
+export async function updateStory(
+  id: number,
+  userId: number,
+  data: Partial<InsertStory>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateStory(id, userId, data);
+  }
+  return (await requireDb())
+    .update(stories)
+    .set(data)
+    .where(
+      and(
+        eq(stories.id, id),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    );
+}
+
+export async function getStoryBySeriesAndChapter(
+  seriesId: string,
+  chapterNumber: number,
+  userId: number
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoryBySeriesAndChapter(
+      seriesId,
+      chapterNumber,
+      userId
+    );
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(stories)
+    .where(
+      and(
+        eq(stories.seriesId, seriesId),
+        eq(stories.chapterNumber, chapterNumber),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    )
+    .limit(1);
+  return result[0];
+}
+
+export async function getStoriesBySeries(seriesId: string, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoriesBySeries(seriesId, userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(stories)
+    .where(
+      and(
+        eq(stories.seriesId, seriesId),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    );
+}
+
 export async function createUcfState(state: InsertUcfState) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return await db.insert(ucfStates).values(state);
+  if (getStorageMode() === "local-file")
+    return localStore.createUcfState(state);
+  return (await requireDb()).insert(ucfStates).values(state);
 }
 
 export async function getUcfStatesByRitualId(ritualId: string) {
-  const db = await getDb();
-  if (!db) return [];
-  return await db.select().from(ucfStates).where(eq(ucfStates.ritualId, ritualId)).orderBy(ucfStates.step);
+  if (getStorageMode() === "local-file") {
+    return localStore.getUcfStatesByRitualId(ritualId);
+  }
+  return (await requireDb())
+    .select()
+    .from(ucfStates)
+    .where(eq(ucfStates.ritualId, ritualId))
+    .orderBy(ucfStates.step);
 }
 
-// Agent log queries
 export async function createAgentLog(log: InsertAgentLog) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return await db.insert(agentLogs).values(log);
+  if (getStorageMode() === "local-file") return localStore.createAgentLog(log);
+  return (await requireDb()).insert(agentLogs).values(log);
 }
 
 export async function getAgentLogsByRitualId(ritualId: string) {
-  const db = await getDb();
-  if (!db) return [];
-  return await db.select().from(agentLogs).where(eq(agentLogs.ritualId, ritualId)).orderBy(agentLogs.timestamp);
+  if (getStorageMode() === "local-file") {
+    return localStore.getAgentLogsByRitualId(ritualId);
+  }
+  return (await requireDb())
+    .select()
+    .from(agentLogs)
+    .where(eq(agentLogs.ritualId, ritualId))
+    .orderBy(agentLogs.timestamp);
 }

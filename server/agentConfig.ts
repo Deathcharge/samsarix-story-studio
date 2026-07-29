@@ -26,10 +26,11 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     name: "Oracle",
     emoji: "🔮",
     role: "Plot Architect",
-    description: "Designs three-act story structures with escalating stakes and satisfying resolutions",
+    description:
+      "Designs three-act story structures with escalating stakes and satisfying resolutions",
     defaultProvider: "openai", // GPT-4 excels at structured narratives
     defaultTemperature: 0.7,
-    systemPrompt: `You are Oracle, the Plot Architect of the Helix Collective.
+    systemPrompt: `You are Oracle, the Plot Architect of Samsarix Story Studio.
 
 Your role is to design compelling three-act story structures with:
 - Clear beginning, middle, and end
@@ -45,10 +46,11 @@ Focus on narrative coherence, pacing, and dramatic structure. Think like a maste
     name: "Lumina",
     emoji: "🌸",
     role: "Character Psychologist",
-    description: "Develops deep emotional arcs and authentic character motivations",
+    description:
+      "Develops deep emotional arcs and authentic character motivations",
     defaultProvider: "anthropic", // Claude excels at empathy and nuance
     defaultTemperature: 0.8,
-    systemPrompt: `You are Lumina, the Character Psychologist of the Helix Collective.
+    systemPrompt: `You are Lumina, the Character Psychologist of Samsarix Story Studio.
 
 Your role is to create emotionally resonant characters with:
 - Deep internal conflicts and motivations
@@ -64,10 +66,11 @@ Focus on psychological depth, empathy, and emotional authenticity. Think like a 
     name: "Gemini",
     emoji: "🎭",
     role: "World-Builder",
-    description: "Constructs rich cyberpunk settings with detailed technology and culture",
+    description:
+      "Constructs rich cyberpunk settings with detailed technology and culture",
     defaultProvider: "google", // Gemini excels at research and world-building
     defaultTemperature: 0.7,
-    systemPrompt: `You are Gemini, the World-Builder of the Helix Collective.
+    systemPrompt: `You are Gemini, the World-Builder of Samsarix Story Studio.
 
 Your role is to construct immersive cyberpunk worlds with:
 - Detailed technology and infrastructure
@@ -86,7 +89,7 @@ Focus on world consistency, sensory details, and cultural depth. Think like a sc
     description: "Injects unexpected twists and novel combinations",
     defaultProvider: "xai", // Grok excels at creative chaos
     defaultTemperature: 0.9,
-    systemPrompt: `You are Agni, the Creative Catalyst of the Helix Collective.
+    systemPrompt: `You are Agni, the Creative Catalyst of Samsarix Story Studio.
 
 Your role is to inject creative chaos with:
 - Unexpected plot twists
@@ -105,7 +108,7 @@ Focus on originality, surprise, and creative breakthroughs. Think like a mad sci
     description: "Evaluates narrative coherence and refines prose quality",
     defaultProvider: "anthropic", // Claude excels at analysis
     defaultTemperature: 0.5,
-    systemPrompt: `You are Claude, the Quality Assessor of the Helix Collective.
+    systemPrompt: `You are Claude, the Quality Assessor of Samsarix Story Studio.
 
 Your role is to evaluate and refine with:
 - Narrative coherence analysis
@@ -124,7 +127,7 @@ Focus on clarity, consistency, and craftsmanship. Think like an editor and liter
     description: "Ensures Tony Accords compliance and ethical storytelling",
     defaultProvider: "anthropic", // Claude excels at ethical reasoning
     defaultTemperature: 0.3,
-    systemPrompt: `You are Kavach, the Ethical Guardian of the Helix Collective.
+    systemPrompt: `You are Kavach, the Ethical Guardian of Samsarix Story Studio.
 
 Your role is to ensure ethical alignment with the Tony Accords v13.4:
 - Nonmaleficence: Do no harm
@@ -143,7 +146,7 @@ Scan for harmful content, stereotypes, and ethical concerns. Approve or suggest 
     description: "Grounds stories in real-world research and citations",
     defaultProvider: "perplexity", // Perplexity excels at research
     defaultTemperature: 0.4,
-    systemPrompt: `You are Researcher, the Fact-Checker of the Helix Collective.
+    systemPrompt: `You are Researcher, the Fact-Checker of Samsarix Story Studio.
 
 Your role is to ground stories in reality with:
 - Real-world research and citations
@@ -171,7 +174,8 @@ export const PRESET_MODES: Record<string, PresetMode> = {
   balanced: {
     id: "balanced",
     name: "Balanced",
-    description: "Default configuration with all agents using their optimal LLMs",
+    description:
+      "Default configuration with all agents using their optimal LLMs",
     agents: ["oracle", "lumina", "gemini", "agni", "claude", "kavach"],
   },
 
@@ -211,7 +215,15 @@ export const PRESET_MODES: Record<string, PresetMode> = {
     id: "experimental",
     name: "Experimental",
     description: "All agents enabled with mixed LLMs for ensemble generation",
-    agents: ["oracle", "lumina", "gemini", "agni", "claude", "kavach", "researcher"],
+    agents: [
+      "oracle",
+      "lumina",
+      "gemini",
+      "agni",
+      "claude",
+      "kavach",
+      "researcher",
+    ],
   },
 
   research: {
@@ -256,7 +268,12 @@ export function getAllPresetModes(): PresetMode[] {
 /**
  * Apply preset mode to get final agent configurations
  */
-export function applyPresetMode(modeId: string): Map<string, { config: AgentConfig; provider: LLMProvider; temperature: number }> {
+export function applyPresetMode(
+  modeId: string
+): Map<
+  string,
+  { config: AgentConfig; provider: LLMProvider; temperature: number }
+> {
   const preset = getPresetMode(modeId);
   if (!preset) {
     throw new Error(`Unknown preset mode: ${modeId}`);
@@ -268,12 +285,13 @@ export function applyPresetMode(modeId: string): Map<string, { config: AgentConf
     const config = getAgentConfig(agentId);
     if (!config) continue;
 
-    const provider = preset.providerOverrides?.[agentId] || config.defaultProvider;
-    const temperature = preset.temperatureOverrides?.[agentId] || config.defaultTemperature;
+    const provider =
+      preset.providerOverrides?.[agentId] || config.defaultProvider;
+    const temperature =
+      preset.temperatureOverrides?.[agentId] || config.defaultTemperature;
 
     result.set(agentId, { config, provider, temperature });
   }
 
   return result;
 }
-
