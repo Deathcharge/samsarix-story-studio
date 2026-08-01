@@ -57,6 +57,8 @@ pnpm start
 
 Database TLS, credentials, least-privilege grants, backup/restore drills, and schema rollback are operator responsibilities. The local file and MySQL adapters should not point at the same logical archive and do not synchronize.
 
+Release 1.1 adds migrations `0004_projects_canon_workspace.sql` and `0005_manuscript_mediumtext.sql`. Apply both before starting 1.1 against an existing MySQL database. The default local-file adapter upgrades version-1 archives to version 2 on first load; make an external backup of the data file before upgrading if rollback is important.
+
 ## Health and shutdown
 
 - `GET /healthz` returns process health and auth mode.
