@@ -3,27 +3,51 @@ import os from "node:os";
 import path from "node:path";
 import type {
   AgentLog,
+  CanonEntry,
   InsertAgentLog,
+  InsertCanonEntry,
+  InsertProject,
   InsertStory,
+  InsertStoryRevision,
   InsertUcfState,
   InsertUser,
+  Project,
   Story,
+  StoryRevision,
   UcfState,
   User,
 } from "../drizzle/schema";
 
 type LocalState = {
-  version: 1;
+  version: 2;
   nextIds: {
     users: number;
+    projects: number;
     stories: number;
+    canonEntries: number;
+    storyRevisions: number;
     ucfStates: number;
     agentLogs: number;
   };
   users: User[];
+  projects: Project[];
   stories: Story[];
+  canonEntries: CanonEntry[];
+  storyRevisions: StoryRevision[];
   ucfStates: UcfState[];
   agentLogs: AgentLog[];
+};
+
+type LegacyLocalState = Omit<
+  LocalState,
+  "version" | "projects" | "canonEntries" | "storyRevisions" | "nextIds"
+> & {
+  version: 1;
+  nextIds: Omit<
+    LocalState["nextIds"],
+    "projects" | "canonEntries" | "storyRevisions"
+  >;
+  stories: Array<Omit<Story, "projectId">>;
 };
 
 const DEFAULT_USER_OPEN_ID = "local-writer";
@@ -74,8 +98,16 @@ function reviveDates(value: unknown): unknown {
 function createInitialState(): LocalState {
   const now = new Date();
   return {
-    version: 1,
-    nextIds: { users: 2, stories: 1, ucfStates: 1, agentLogs: 1 },
+    version: 2,
+    nextIds: {
+      users: 2,
+      projects: 1,
+      stories: 1,
+      canonEntries: 1,
+      storyRevisions: 1,
+      ucfStates: 1,
+      agentLogs: 1,
+    },
     users: [
       {
         id: 1,
@@ -89,9 +121,36 @@ function createInitialState(): LocalState {
         lastSignedIn: now,
       },
     ],
+    projects: [],
     stories: [],
+    canonEntries: [],
+    storyRevisions: [],
     ucfStates: [],
     agentLogs: [],
+  };
+}
+
+function migrateState(parsed: LocalState | LegacyLocalState): LocalState {
+  if (parsed.version === 2) return parsed;
+  if (parsed.version !== 1) {
+    throw new Error(
+      `Unsupported local data version: ${String((parsed as { version?: unknown }).version)}`
+    );
+  }
+
+  return {
+    ...parsed,
+    version: 2,
+    nextIds: {
+      ...parsed.nextIds,
+      projects: 1,
+      canonEntries: 1,
+      storyRevisions: 1,
+    },
+    projects: [],
+    stories: parsed.stories.map(story => ({ ...story, projectId: null })),
+    canonEntries: [],
+    storyRevisions: [],
   };
 }
 
@@ -112,13 +171,12 @@ async function loadState(): Promise<LocalState> {
   const dataPath = getLocalDataPath();
   try {
     const raw = await readFile(dataPath, "utf8");
-    const parsed = reviveDates(JSON.parse(raw)) as LocalState;
-    if (parsed.version !== 1) {
-      throw new Error(
-        `Unsupported local data version: ${String(parsed.version)}`
-      );
-    }
-    return parsed;
+    const parsed = reviveDates(JSON.parse(raw)) as
+      | LocalState
+      | LegacyLocalState;
+    const state = migrateState(parsed);
+    if (parsed.version === 1) await persist(state);
+    return state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 
@@ -126,14 +184,12 @@ async function loadState(): Promise<LocalState> {
     if (legacyPath) {
       try {
         const raw = await readFile(legacyPath, "utf8");
-        const parsed = reviveDates(JSON.parse(raw)) as LocalState;
-        if (parsed.version !== 1) {
-          throw new Error(
-            `Unsupported local data version: ${String(parsed.version)}`
-          );
-        }
-        await persist(parsed);
-        return parsed;
+        const parsed = reviveDates(JSON.parse(raw)) as
+          | LocalState
+          | LegacyLocalState;
+        const state = migrateState(parsed);
+        await persist(state);
+        return state;
       } catch (legacyError) {
         if ((legacyError as NodeJS.ErrnoException).code !== "ENOENT") {
           throw legacyError;
@@ -159,9 +215,11 @@ async function readState() {
 
 async function mutate<T>(operation: (state: LocalState) => T | Promise<T>) {
   const pending = writeQueue.then(async () => {
-    const state = await getState();
-    const result = await operation(state);
-    await persist(state);
+    const current = await getState();
+    const next = clone(current);
+    const result = await operation(next);
+    await persist(next);
+    statePromise = Promise.resolve(next);
     return result;
   });
 
@@ -174,6 +232,21 @@ async function mutate<T>(operation: (state: LocalState) => T | Promise<T>) {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function pruneStoryRevisions(state: LocalState, storyId: number) {
+  const retainedIds = new Set(
+    state.storyRevisions
+      .filter(revision => revision.storyId === storyId)
+      .sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id
+      )
+      .slice(0, 50)
+      .map(revision => revision.id)
+  );
+  state.storyRevisions = state.storyRevisions.filter(
+    revision => revision.storyId !== storyId || retainedIds.has(revision.id)
+  );
 }
 
 export async function getLocalUser(): Promise<User> {
@@ -212,6 +285,118 @@ export async function getUserByOpenId(openId: string) {
   return user ? clone(user) : undefined;
 }
 
+export async function createProject(project: InsertProject) {
+  return mutate(state => {
+    const now = new Date();
+    const id = state.nextIds.projects++;
+    const record: Project = {
+      id,
+      userId: project.userId,
+      title: project.title,
+      premise: project.premise,
+      genre: project.genre ?? null,
+      style: project.style ?? null,
+      createdAt: project.createdAt ?? now,
+      updatedAt: project.updatedAt ?? now,
+    };
+    state.projects.push(record);
+    return clone(record);
+  });
+}
+
+export async function getAllProjects(userId: number) {
+  const state = await readState();
+  return state.projects
+    .filter(project => project.userId === userId)
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+    .map(clone);
+}
+
+export async function getProjectById(id: number, userId: number) {
+  const state = await readState();
+  const project = state.projects.find(
+    entry => entry.id === id && entry.userId === userId
+  );
+  return project ? clone(project) : undefined;
+}
+
+export async function updateProject(
+  id: number,
+  userId: number,
+  data: Partial<InsertProject>
+) {
+  return mutate(state => {
+    const project = state.projects.find(
+      entry => entry.id === id && entry.userId === userId
+    );
+    if (!project) return false;
+    Object.assign(project, data, { updatedAt: new Date() });
+    return true;
+  });
+}
+
+export async function createCanonEntry(input: InsertCanonEntry) {
+  return mutate(state => {
+    const now = new Date();
+    const id = state.nextIds.canonEntries++;
+    const record: CanonEntry = {
+      id,
+      projectId: input.projectId,
+      userId: input.userId,
+      kind: input.kind,
+      name: input.name,
+      content: input.content,
+      activationKeys: input.activationKeys,
+      alwaysInclude: input.alwaysInclude ?? 0,
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    };
+    state.canonEntries.push(record);
+    return clone(record);
+  });
+}
+
+export async function getCanonEntries(projectId: number, userId: number) {
+  const state = await readState();
+  return state.canonEntries
+    .filter(entry => entry.projectId === projectId && entry.userId === userId)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(clone);
+}
+
+export async function updateCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number,
+  data: Partial<InsertCanonEntry>
+) {
+  return mutate(state => {
+    const entry = state.canonEntries.find(
+      item =>
+        item.id === id && item.projectId === projectId && item.userId === userId
+    );
+    if (!entry) return false;
+    Object.assign(entry, data, { updatedAt: new Date() });
+    return true;
+  });
+}
+
+export async function deleteCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number
+) {
+  return mutate(state => {
+    const index = state.canonEntries.findIndex(
+      item =>
+        item.id === id && item.projectId === projectId && item.userId === userId
+    );
+    if (index < 0) return false;
+    state.canonEntries.splice(index, 1);
+    return true;
+  });
+}
+
 export async function createStory(story: InsertStory) {
   return mutate(state => {
     const now = new Date();
@@ -219,6 +404,7 @@ export async function createStory(story: InsertStory) {
     const record: Story = {
       id,
       userId: story.userId ?? null,
+      projectId: story.projectId ?? null,
       title: story.title,
       prompt: story.prompt,
       content: story.content,
@@ -273,6 +459,24 @@ export async function getAllStories(userId: number) {
     .map(clone);
 }
 
+export async function getStoriesByProject(projectId: number, userId: number) {
+  const state = await readState();
+  return state.stories
+    .filter(
+      entry =>
+        entry.projectId === projectId &&
+        entry.userId === userId &&
+        !entry.deletedAt
+    )
+    .sort((a, b) => {
+      const chapterDifference =
+        (a.chapterNumber ?? Number.MAX_SAFE_INTEGER) -
+        (b.chapterNumber ?? Number.MAX_SAFE_INTEGER);
+      return chapterDifference || a.createdAt.getTime() - b.createdAt.getTime();
+    })
+    .map(clone);
+}
+
 export async function updateStory(
   id: number,
   userId: number,
@@ -284,6 +488,85 @@ export async function updateStory(
     );
     if (!story) return false;
     Object.assign(story, data, { updatedAt: new Date() });
+    return true;
+  });
+}
+
+export async function updateStoryWithRevision(
+  id: number,
+  userId: number,
+  data: Pick<InsertStory, "title" | "content" | "wordCount">,
+  reason: string
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry => entry.id === id && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story) return false;
+
+    const now = new Date();
+    state.storyRevisions.push({
+      id: state.nextIds.storyRevisions++,
+      storyId: story.id,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason,
+      createdAt: now,
+    });
+    pruneStoryRevisions(state, story.id);
+    Object.assign(story, data, { updatedAt: now });
+    return true;
+  });
+}
+
+export async function getStoryRevisions(storyId: number, userId: number) {
+  const state = await readState();
+  return state.storyRevisions
+    .filter(
+      revision => revision.storyId === storyId && revision.userId === userId
+    )
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map(clone);
+}
+
+export async function restoreStoryRevision(
+  storyId: number,
+  revisionId: number,
+  userId: number
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry =>
+        entry.id === storyId && entry.userId === userId && !entry.deletedAt
+    );
+    const revision = state.storyRevisions.find(
+      entry =>
+        entry.id === revisionId &&
+        entry.storyId === storyId &&
+        entry.userId === userId
+    );
+    if (!story || !revision) return false;
+
+    const now = new Date();
+    const currentSnapshot: StoryRevision = {
+      id: state.nextIds.storyRevisions++,
+      storyId,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason: "before-restore",
+      createdAt: now,
+    };
+    state.storyRevisions.push(currentSnapshot);
+    pruneStoryRevisions(state, storyId);
+    story.title = revision.title;
+    story.content = revision.content;
+    story.wordCount = revision.content
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+    story.updatedAt = now;
     return true;
   });
 }

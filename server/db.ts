@@ -1,12 +1,18 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   agentLogs,
+  canonEntries,
   type InsertAgentLog,
+  type InsertCanonEntry,
+  type InsertProject,
   type InsertStory,
+  type InsertStoryRevision,
   type InsertUcfState,
   type InsertUser,
+  projects,
   stories,
+  storyRevisions,
   ucfStates,
   users,
 } from "../drizzle/schema";
@@ -100,6 +106,141 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+export async function createProject(project: InsertProject) {
+  if (getStorageMode() === "local-file") {
+    return localStore.createProject(project);
+  }
+  const connection = await requireDb();
+  const result = await connection.insert(projects).values(project);
+  const id = Number(result[0].insertId);
+  const created = await getProjectById(id, project.userId);
+  if (!created) throw new Error("Project was not available after creation");
+  return created;
+}
+
+export async function getAllProjects(userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getAllProjects(userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(projects)
+    .where(eq(projects.userId, userId))
+    .orderBy(desc(projects.updatedAt));
+}
+
+export async function getProjectById(id: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getProjectById(id, userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function updateProject(
+  id: number,
+  userId: number,
+  data: Partial<InsertProject>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateProject(id, userId, data);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .update(projects)
+    .set(data)
+    .where(and(eq(projects.id, id), eq(projects.userId, userId)));
+  return result[0].affectedRows > 0;
+}
+
+export async function createCanonEntry(input: InsertCanonEntry) {
+  if (getStorageMode() === "local-file") {
+    return localStore.createCanonEntry(input);
+  }
+  const connection = await requireDb();
+  const result = await connection.insert(canonEntries).values(input);
+  const created = await connection
+    .select()
+    .from(canonEntries)
+    .where(
+      and(
+        eq(canonEntries.id, Number(result[0].insertId)),
+        eq(canonEntries.userId, input.userId)
+      )
+    )
+    .limit(1);
+  if (!created[0])
+    throw new Error("Canon entry was not available after creation");
+  return created[0];
+}
+
+export async function getCanonEntries(projectId: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getCanonEntries(projectId, userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(canonEntries)
+    .where(
+      and(
+        eq(canonEntries.projectId, projectId),
+        eq(canonEntries.userId, userId)
+      )
+    )
+    .orderBy(asc(canonEntries.name));
+}
+
+export async function updateCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number,
+  data: Partial<InsertCanonEntry>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateCanonEntry(id, projectId, userId, data);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .update(canonEntries)
+    .set(data)
+    .where(
+      and(
+        eq(canonEntries.id, id),
+        eq(canonEntries.projectId, projectId),
+        eq(canonEntries.userId, userId)
+      )
+    );
+  return result[0].affectedRows > 0;
+}
+
+export async function deleteCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.deleteCanonEntry(id, projectId, userId);
+  }
+  const result = await (await requireDb())
+    .delete(canonEntries)
+    .where(
+      and(
+        eq(canonEntries.id, id),
+        eq(canonEntries.projectId, projectId),
+        eq(canonEntries.userId, userId)
+      )
+    );
+  return result[0].affectedRows > 0;
+}
+
 export async function createStory(story: InsertStory) {
   if (getStorageMode() === "local-file") return localStore.createStory(story);
   return (await requireDb()).insert(stories).values(story);
@@ -155,6 +296,23 @@ export async function getAllStories(userId: number) {
     .orderBy(desc(stories.createdAt));
 }
 
+export async function getStoriesByProject(projectId: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoriesByProject(projectId, userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(stories)
+    .where(
+      and(
+        eq(stories.projectId, projectId),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    )
+    .orderBy(asc(stories.chapterNumber), asc(stories.createdAt));
+}
+
 export async function updateStory(
   id: number,
   userId: number,
@@ -173,6 +331,143 @@ export async function updateStory(
         isNull(stories.deletedAt)
       )
     );
+}
+
+export async function updateStoryWithRevision(
+  id: number,
+  userId: number,
+  data: Pick<InsertStory, "title" | "content" | "wordCount">,
+  reason: string
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateStoryWithRevision(id, userId, data, reason);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const existing = await transaction
+      .select()
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1);
+    const story = existing[0];
+    if (!story) return false;
+    const snapshot: InsertStoryRevision = {
+      storyId: id,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason,
+    };
+    await transaction.insert(storyRevisions).values(snapshot);
+    const revisions = await transaction
+      .select({ id: storyRevisions.id })
+      .from(storyRevisions)
+      .where(eq(storyRevisions.storyId, id))
+      .orderBy(desc(storyRevisions.createdAt), desc(storyRevisions.id))
+      .limit(51);
+    if (revisions.length > 50) {
+      await transaction.delete(storyRevisions).where(
+        inArray(
+          storyRevisions.id,
+          revisions.slice(50).map(item => item.id)
+        )
+      );
+    }
+    await transaction.update(stories).set(data).where(eq(stories.id, id));
+    return true;
+  });
+}
+
+export async function getStoryRevisions(storyId: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoryRevisions(storyId, userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(storyRevisions)
+    .where(
+      and(
+        eq(storyRevisions.storyId, storyId),
+        eq(storyRevisions.userId, userId)
+      )
+    )
+    .orderBy(desc(storyRevisions.createdAt));
+}
+
+export async function restoreStoryRevision(
+  storyId: number,
+  revisionId: number,
+  userId: number
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.restoreStoryRevision(storyId, revisionId, userId);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const [existing, target] = await Promise.all([
+      transaction
+        .select()
+        .from(stories)
+        .where(
+          and(
+            eq(stories.id, storyId),
+            eq(stories.userId, userId),
+            isNull(stories.deletedAt)
+          )
+        )
+        .limit(1),
+      transaction
+        .select()
+        .from(storyRevisions)
+        .where(
+          and(
+            eq(storyRevisions.id, revisionId),
+            eq(storyRevisions.storyId, storyId),
+            eq(storyRevisions.userId, userId)
+          )
+        )
+        .limit(1),
+    ]);
+    const story = existing[0];
+    const revision = target[0];
+    if (!story || !revision) return false;
+    await transaction.insert(storyRevisions).values({
+      storyId,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason: "before-restore",
+    });
+    const revisions = await transaction
+      .select({ id: storyRevisions.id })
+      .from(storyRevisions)
+      .where(eq(storyRevisions.storyId, storyId))
+      .orderBy(desc(storyRevisions.createdAt), desc(storyRevisions.id))
+      .limit(51);
+    if (revisions.length > 50) {
+      await transaction.delete(storyRevisions).where(
+        inArray(
+          storyRevisions.id,
+          revisions.slice(50).map(item => item.id)
+        )
+      );
+    }
+    await transaction
+      .update(stories)
+      .set({
+        title: revision.title,
+        content: revision.content,
+        wordCount: revision.content.trim().split(/\s+/).filter(Boolean).length,
+      })
+      .where(eq(stories.id, storyId));
+    return true;
+  });
 }
 
 export async function getStoryBySeriesAndChapter(

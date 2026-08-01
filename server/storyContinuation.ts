@@ -21,7 +21,8 @@ export async function generateContinuationPrompt({
     .filter(Boolean)
     .at(-1)
     ?.replace(/^#.*\n?/, "")
-    .slice(0, 300);
+    .slice(0, 300)
+    .replace(/[.!?]+$/, "");
   const direction = userPrompt?.trim()
     ? ` Follow this direction: ${userPrompt.trim().slice(0, 300)}`
     : " Introduce a consequence of the previous chapter's final decision and force the protagonist to choose between protecting one person and preserving the wider truth.";
@@ -44,6 +45,12 @@ export async function extractStoryContext(storyContent: string) {
   };
 }
 
-export function generateSeriesId() {
+export function generateSeriesId(seed?: string | number) {
+  if (seed !== undefined) {
+    const normalized = String(seed)
+      .replace(/[^a-zA-Z0-9_-]/g, "-")
+      .slice(0, 48);
+    return `series_${normalized}`;
+  }
   return `series_${randomUUID()}`;
 }

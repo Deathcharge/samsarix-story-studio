@@ -39,17 +39,137 @@ describe("primary local story journey", () => {
       oracle: { provider: "demo" },
     });
 
-    const continuation = await caller.stories.continueStory({
+    const continuation = await caller.stories.prepareContinuation({
       previousStoryId: story!.id,
     });
     expect(continuation.chapterNumber).toBe(2);
     expect(continuation.prompt).toContain("chapter 2");
+
+    const unchanged = await caller.stories.getByRitualId({
+      ritualId: generated.ritualId,
+    });
+    expect(unchanged?.seriesId).toBeNull();
+
+    const nextChapter = await caller.stories.generate({
+      prompt: continuation.prompt,
+      preset: "balanced",
+      previousChapterId: story!.id,
+    });
+    expect(nextChapter.ritualId).toMatch(/^demo_/);
 
     const updated = await caller.stories.getByRitualId({
       ritualId: generated.ritualId,
     });
     expect(updated?.seriesId).toBe(continuation.seriesId);
     expect(updated?.chapterNumber).toBe(1);
+  });
+
+  it("manages a project, selects bounded canon, edits with history, and exports a backup", async () => {
+    const caller = await createCaller();
+    const project = await caller.projects.create({
+      title: "The Glass Archive",
+      premise:
+        "A courier maps a city that deletes dissenters from public memory.",
+      genre: "speculative noir",
+      style: "Close third person with restrained prose.",
+    });
+    const mara = await caller.projects.createCanon({
+      projectId: project.id,
+      kind: "character",
+      name: "Mara Venn",
+      content: "Mara is a courier who refuses neural implants.",
+      activationKeys: ["Mara", "the courier"],
+      alwaysInclude: false,
+    });
+    await caller.projects.createCanon({
+      projectId: project.id,
+      kind: "location",
+      name: "Glass Harbor",
+      content: "Glass Harbor floods at every high tide.",
+      activationKeys: ["harbor"],
+      alwaysInclude: true,
+    });
+    await caller.projects.createCanon({
+      projectId: project.id,
+      kind: "faction",
+      name: "The Pale Office",
+      content: "A records bureau that should remain unknown in chapter one.",
+      activationKeys: ["Pale Office"],
+      alwaysInclude: false,
+    });
+
+    const preview = await caller.projects.previewContext({
+      projectId: project.id,
+      prompt: "Mara follows a forged map through the old station.",
+      selectedCanonIds: [],
+    });
+    expect(preview.entries.map(entry => entry.name)).toEqual([
+      "Glass Harbor",
+      "Mara Venn",
+    ]);
+    expect(preview.context).not.toContain("The Pale Office");
+    expect(preview.estimatedTokens).toBeGreaterThan(0);
+
+    const generated = await caller.stories.generate({
+      prompt: "Mara follows a forged map through the old station.",
+      preset: "structured",
+      projectId: project.id,
+      selectedCanonIds: [mara.id],
+    });
+    expect(generated.projectId).toBe(project.id);
+    expect(generated.contextSelection?.entries).toHaveLength(2);
+
+    const workspace = await caller.projects.get({ id: project.id });
+    expect(workspace.stories).toHaveLength(1);
+    expect(workspace.stories[0].chapterNumber).toBe(1);
+    expect(workspace.canon).toHaveLength(3);
+
+    const story = await caller.stories.getById({
+      id: workspace.stories[0].id,
+    });
+    if (!story) throw new Error("Generated project story was not found");
+    const originalContent = story.content;
+    await caller.stories.update({
+      id: story.id,
+      title: "Chapter One: The Missing Route",
+      content: `${story.content}\n\nMara folded the map and chose the flooded road.`,
+    });
+    const revisions = await caller.stories.revisions({ storyId: story.id });
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0].content).toBe(originalContent);
+
+    await caller.stories.restoreRevision({
+      storyId: story.id,
+      revisionId: revisions[0].id,
+    });
+    const restored = await caller.stories.getById({ id: story.id });
+    expect(restored?.content).toBe(originalContent);
+    expect(await caller.stories.revisions({ storyId: story.id })).toHaveLength(
+      2
+    );
+
+    const backup = await caller.projects.export({ id: project.id });
+    expect(backup.format).toBe("samsarix-project");
+    expect(backup.stories[0].revisions).toHaveLength(2);
+
+    const owner = await db.getLocalUser();
+    const otherCaller = await createCaller({
+      ...owner,
+      id: 998,
+      openId: "project-intruder",
+      name: "Project Intruder",
+      role: "user",
+    });
+    await expect(otherCaller.projects.get({ id: project.id })).rejects.toThrow(
+      "Project not found"
+    );
+    await expect(
+      otherCaller.projects.previewContext({
+        projectId: project.id,
+        prompt: "Reveal the private canon",
+        selectedCanonIds: [],
+      })
+    ).rejects.toThrow("Project not found");
   });
 
   it("does not expose a story to another user", async () => {

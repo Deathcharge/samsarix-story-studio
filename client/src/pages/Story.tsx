@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Brain,
@@ -5,7 +6,11 @@ import {
   CircleAlert,
   Download,
   FileText,
+  History,
   Loader2,
+  Pencil,
+  RotateCcw,
+  Save,
   ShieldCheck,
   Sparkles,
   Zap,
@@ -14,7 +19,9 @@ import { Link, useLocation, useParams } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 
 type Contribution = { name: string; provider?: string; role?: string };
@@ -42,11 +49,19 @@ export default function Story() {
   const params = useParams<{ id: string }>();
   const ritualId = params.id || "";
   const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
   const storyQuery = trpc.stories.getByRitualId.useQuery(
     { ritualId },
     { enabled: Boolean(ritualId), retry: false }
   );
   const story = storyQuery.data;
+  const revisionsQuery = trpc.stories.revisions.useQuery(
+    { storyId: story?.id ?? 0 },
+    { enabled: Boolean(story?.id), retry: false }
+  );
   const trajectoryQuery = trpc.stories.getUcfTrajectory.useQuery(
     { ritualId },
     { enabled: Boolean(story?.ritualId), retry: false }
@@ -55,17 +70,33 @@ export default function Story() {
     { ritualId },
     { enabled: Boolean(story?.ritualId), retry: false }
   );
-  const continueMutation = trpc.stories.continueStory.useMutation({
-    onSuccess: data => {
-      const query = new URLSearchParams({
-        prompt: data.prompt,
-        seriesId: data.seriesId,
-        chapterNumber: String(data.chapterNumber),
-        previousChapterId: String(data.previousChapterId),
-      });
-      setLocation(`/generate?${query.toString()}`);
+  const updateMutation = trpc.stories.update.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.stories.getByRitualId.invalidate({ ritualId }),
+        story
+          ? utils.stories.revisions.invalidate({ storyId: story.id })
+          : Promise.resolve(),
+      ]);
+      setIsEditing(false);
     },
   });
+  const restoreMutation = trpc.stories.restoreRevision.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.stories.getByRitualId.invalidate({ ritualId }),
+        story
+          ? utils.stories.revisions.invalidate({ storyId: story.id })
+          : Promise.resolve(),
+      ]);
+    },
+  });
+
+  useEffect(() => {
+    if (!story || isEditing) return;
+    setEditTitle(story.title);
+    setEditContent(story.content);
+  }, [isEditing, story]);
 
   if (storyQuery.isLoading) {
     return (
@@ -128,6 +159,14 @@ export default function Story() {
   const isDemo = contributions.some(
     contribution => contribution.provider === "demo"
   );
+  const hasQualityReview = contributions.some(
+    contribution =>
+      contribution.name === "claude" && contribution.provider !== "demo"
+  );
+  const hasSafetyReview = contributions.some(
+    contribution =>
+      contribution.name === "kavach" && contribution.provider !== "demo"
+  );
   const handleDownload = () => {
     const blob = new Blob([story.content], {
       type: "text/markdown;charset=utf-8",
@@ -157,6 +196,12 @@ export default function Story() {
             aria-label="Primary navigation"
             className="flex items-center gap-5 text-sm"
           >
+            <Link
+              href="/projects"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Projects
+            </Link>
             <Link
               href="/generate"
               className="text-muted-foreground hover:text-foreground"
@@ -206,14 +251,17 @@ export default function Story() {
                 <FileText className="mr-1 h-3 w-3" />
                 {story.wordCount} words
               </Badge>
-              <Badge variant="outline">
-                <Sparkles className="mr-1 h-3 w-3" />
-                {Math.round(story.qualityScore * 100)}% advisory score
-              </Badge>
-              {story.ethicalApproval && (
+              {isDemo || hasQualityReview ? (
+                <Badge variant="outline">
+                  <Sparkles className="mr-1 h-3 w-3" />
+                  {Math.round(story.qualityScore * 100)}%{" "}
+                  {isDemo ? "template score" : "automated quality score"}
+                </Badge>
+              ) : null}
+              {hasSafetyReview && story.ethicalApproval && (
                 <Badge variant="outline">
                   <ShieldCheck className="mr-1 h-3 w-3" />
-                  Automated review passed
+                  Safety review flag: pass
                 </Badge>
               )}
               <Badge variant="outline">
@@ -227,22 +275,24 @@ export default function Story() {
                 Download Markdown
               </Button>
               <Button
-                onClick={() =>
-                  continueMutation.mutate({ previousStoryId: story.id })
-                }
-                disabled={continueMutation.isPending}
+                variant="outline"
+                onClick={() => setIsEditing(current => !current)}
               >
-                {continueMutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Zap className="mr-2 h-4 w-4" />
-                )}
+                <Pencil className="mr-2 h-4 w-4" />
+                {isEditing ? "Cancel edit" : "Edit draft"}
+              </Button>
+              <Button
+                onClick={() =>
+                  setLocation(`/generate?previousStoryId=${story.id}`)
+                }
+              >
+                <Zap className="mr-2 h-4 w-4" />
                 Continue story
               </Button>
             </div>
-            {continueMutation.error && (
+            {updateMutation.error && (
               <p role="alert" className="text-sm text-destructive">
-                {continueMutation.error.message}
+                {updateMutation.error.message}
               </p>
             )}
             {isDemo && (
@@ -254,21 +304,163 @@ export default function Story() {
           </header>
 
           <Tabs defaultValue="story" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="story">Draft</TabsTrigger>
+              <TabsTrigger value="history">History</TabsTrigger>
               <TabsTrigger value="process">Process</TabsTrigger>
               <TabsTrigger value="logs">Logs</TabsTrigger>
             </TabsList>
 
             <TabsContent value="story">
-              <Card className="story-prose p-6 md:p-10">
-                {String(story.content)
-                  .split(/\n\s*\n/)
-                  .map((paragraph: string, index: number) =>
-                    paragraph.startsWith("# ") ? null : (
-                      <p key={index}>{paragraph}</p>
-                    )
-                  )}
+              {isEditing ? (
+                <Card className="space-y-5 p-6 md:p-8">
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="draft-title"
+                      className="text-sm font-semibold"
+                    >
+                      Title
+                    </label>
+                    <Input
+                      id="draft-title"
+                      value={editTitle}
+                      maxLength={255}
+                      onChange={event => setEditTitle(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="draft-content"
+                      className="text-sm font-semibold"
+                    >
+                      Manuscript
+                    </label>
+                    <Textarea
+                      id="draft-content"
+                      value={editContent}
+                      maxLength={500_000}
+                      rows={28}
+                      onChange={event => setEditContent(event.target.value)}
+                      className="min-h-[34rem] resize-y font-serif text-base leading-8"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {editContent
+                        .split(/\s+/)
+                        .filter(Boolean)
+                        .length.toLocaleString()}{" "}
+                      words · saving creates a recoverable revision
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      disabled={
+                        !editTitle.trim() ||
+                        !editContent.trim() ||
+                        updateMutation.isPending
+                      }
+                      onClick={() =>
+                        updateMutation.mutate({
+                          id: story.id,
+                          title: editTitle.trim(),
+                          content: editContent.trim(),
+                        })
+                      }
+                    >
+                      {updateMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 h-4 w-4" />
+                      )}
+                      Save revision
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsEditing(false)}
+                    >
+                      Discard unsaved changes
+                    </Button>
+                  </div>
+                </Card>
+              ) : (
+                <Card className="story-prose p-6 md:p-10">
+                  {String(story.content)
+                    .split(/\n\s*\n/)
+                    .map((paragraph: string, index: number) =>
+                      paragraph.startsWith("# ") ? null : (
+                        <p key={index}>{paragraph}</p>
+                      )
+                    )}
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="history">
+              <Card className="p-6 md:p-8">
+                <h2 className="flex items-center gap-2 text-lg font-bold">
+                  <History className="h-5 w-5 text-primary" />
+                  Revision history
+                </h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Every save snapshots the prior manuscript. Restoring also
+                  preserves the current version.
+                </p>
+                {revisionsQuery.isLoading ? (
+                  <p className="mt-6 text-sm text-muted-foreground">
+                    Loading revisions…
+                  </p>
+                ) : revisionsQuery.data && revisionsQuery.data.length > 0 ? (
+                  <div className="mt-6 space-y-3">
+                    {revisionsQuery.data.map(revision => (
+                      <div
+                        key={revision.id}
+                        className="flex flex-col gap-3 rounded-lg border border-border/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <strong>{revision.title}</strong>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {new Date(revision.createdAt).toLocaleString()} ·{" "}
+                            {revision.reason.replaceAll("-", " ")} ·{" "}
+                            {revision.content
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .length.toLocaleString()}{" "}
+                            words
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={restoreMutation.isPending}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "Restore this revision? The current manuscript will be preserved in history."
+                              )
+                            ) {
+                              restoreMutation.mutate({
+                                storyId: story.id,
+                                revisionId: revision.id,
+                              });
+                            }
+                          }}
+                        >
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                          Restore
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-6 text-sm text-muted-foreground">
+                    No revisions yet. The first save will preserve the generated
+                    draft here.
+                  </p>
+                )}
+                {restoreMutation.error ? (
+                  <p role="alert" className="mt-4 text-sm text-destructive">
+                    {restoreMutation.error.message}
+                  </p>
+                ) : null}
               </Card>
             </TabsContent>
 
