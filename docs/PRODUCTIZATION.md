@@ -1,6 +1,6 @@
 # Samsarix Story Studio productization record
 
-Last updated: 2026-07-28
+Last updated: 2026-08-01
 
 ## Current repository assessment
 
@@ -18,7 +18,7 @@ The worktree was clean before implementation (`git status --short --branch` retu
 
 ## Chosen product
 
-**Samsarix Story Studio** is a local-first, bring-your-own-provider fiction workshop from Samsarix LLC. A writer enters a story premise, chooses a bounded orchestration preset, generates a complete draft, reviews transparent agent/quality metadata, saves it to a local archive, continues a chapter, and exports Markdown.
+**Samsarix Story Studio** is a local-first, bring-your-own-provider manuscript workspace from Samsarix LLC. A writer creates a project, maintains explicit story canon, previews the bounded context selected for a chapter, generates or writes a draft, edits it with recoverable revisions, continues the manuscript, and exports Markdown or a versioned JSON backup.
 
 The default no-credential mode is an explicitly labeled deterministic demo. It exists so a new user can evaluate the complete workflow without an account, cloud database, private legacy service, or API spend. Supplying one supported provider key enables the real orchestration path; unavailable preferred providers fall back to the configured provider instead of requiring five accounts.
 
@@ -34,9 +34,9 @@ Primary release journey:
 2. open the studio without external authentication;
 3. enter or choose a prompt;
 4. generate a demo or provider-backed draft with bounded cost;
-5. view the persisted story and its clearly labeled metadata;
-6. find it again in the archive;
-7. download Markdown or continue into the next chapter.
+5. edit the persisted story while retaining the previous manuscript as a recoverable revision;
+6. restore a revision, continue the manuscript, or find any draft in the archive;
+7. download a combined Markdown manuscript or full project JSON backup.
 
 ## Product and architecture decisions
 
@@ -46,19 +46,23 @@ Primary release journey:
 - Instantiate external provider clients lazily, validate configuration before calls, bound retries/timeouts, and cap orchestration size.
 - Remove private Manus services and unused legacy adapters from the product and dependency graph.
 - Remove fabricated metrics, dead controls, placeholder analytics, and external font dependencies from the user-facing core.
-- Prefer a single complete story workflow over editing, collaboration, billing, or broad content-management features.
+- Prefer a focused project/canon/manuscript workflow over collaboration, billing, or broad content-management features.
 - Do not deploy, publish, spend money, create accounts, or modify `helix-unified`.
 
 ## Current ecosystem evidence
 
-The narrow product wedge is control and inspectability, not feature parity with mature writing suites. Sudowrite’s current Story Bible is a project source of truth for both organization and AI context, while Novelcrafter advertises provider choice and local-model connectivity. Those products validate future context-management work but also make a full novel-management suite an unrealistic first-release target.
+The narrow product wedge is control, recoverability, and inspectable context—not feature parity with mature writing suites. Scrivener validates the need to organize and export long manuscripts; Sudowrite’s Story Bible treats project facts as both writer reference and AI context; NovelAI exposes lore activation and context budgets; and Novelcrafter combines a project Codex with bring-your-own-provider choices and revision history. These workflows support the 1.1 decision to build projects, canon, explicit selection reasons, revisions, and portable export before adding more generation modes.
 
 Provider identifiers must remain configuration rather than permanent code assumptions: current OpenAI, Anthropic, Google, xAI, and Perplexity documentation all expose active model lists or explicit deprecation lifecycles. The repository’s original Anthropic and Gemini defaults were already retired by July 2026.
 
 Primary references:
 
 - https://docs.sudowrite.com/using-sudowrite/1ow1qkGqof9rtcyGnrWUBS/what-is-story-bible/jmWepHcQdJetNrE991fjJC
+- https://www.literatureandlatte.com/scrivener/overview
+- https://docs.novelai.net/en/text/lorebook/
+- https://docs.novelai.net/en/text/editor/advancedsettings/
 - https://www.novelcrafter.com/
+- https://docs.novelcrafter.com/en/articles/8677729-revision-history/
 - https://platform.openai.com/docs/models
 - https://platform.claude.com/docs/en/about-claude/models/overview
 - https://ai.google.dev/gemini-api/docs/models
@@ -112,8 +116,9 @@ The duplicate resolver processes started by those four independent baseline comm
 
 ### P2 — valuable after the first credible release
 
-- Story bible/codex and scene-level context management.
-- Draft editing and regeneration with version history.
+- [x] Project-level story bible/canon with explicit, bounded context selection.
+- [x] Draft editing with capped, recoverable version history.
+- Project import/restore, scene-level planning, and explicit chapter ordering.
 - Streaming real stage progress and user cancellation.
 - Tags, collections, and favorites after their incomplete backend is designed; basic archive search is included now.
 - Local-model adapters such as Ollama or an OpenAI-compatible base URL.
@@ -157,27 +162,37 @@ The duplicate resolver processes started by those four independent baseline comm
 - Pruned unused packages and private adapters, upgraded vulnerable production dependencies, and added a pinned, least-privilege CI workflow.
 - Replaced assertion-free demo tests with generation, persistence, ownership, validation, and network-boundary coverage.
 - Rebranded the standalone product for Samsarix LLC, preserved legacy data/configuration compatibility, and replaced conflicting legal files with a single canonical BSL 1.1 posture plus copyright, trademark, commercial, support, and security notices.
+- Added the 1.1 Projects & Canon vertical slice: project briefs, typed canon, deterministic context activation and preview, project-aware generation, editable chapters, revision restore, and portable project/manuscript export.
+- Added a versioned local-data migration, transactional MySQL revision writes, generated Drizzle migrations, medium-text manuscript storage, and a 50-revision retention bound.
+- Removed story-derived continuation text from URLs, made continuation preparation read-only, and delayed prior-chapter series updates until a next chapter is successfully persisted.
+- Corrected atomic local persistence so failed disk writes leave the last persisted in-memory state intact.
+- Kept routine project responses bounded to chapter summaries; full manuscript and revision bodies are returned only by story detail or an explicit project export.
+- Performed production-browser QA for project creation, canon creation, context preview, demo generation, chapter editing, revision history, continuation privacy, and 390-pixel responsive layout; QA findings were fixed before release verification.
 
 ## Final verification
 
 Environment: Windows, Node.js `v24.12.0`, pnpm `11.9.0`. CI uses the documented Node.js 22 release line.
 
-| Command                          | Final result                                                                                                |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                               |
-| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                    |
-| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                |
-| `pnpm test`                      | Passed; 2 files and 7 behavioral tests, including Samsarix/legacy storage-setting compatibility.            |
-| `pnpm build`                     | Passed; client and server production artifacts were emitted.                                                |
-| `pnpm audit --prod`              | Passed; no known production dependency vulnerabilities.                                                     |
-| `pnpm peers check`               | Passed; no peer dependency issues.                                                                          |
-| production smoke                 | Passed on `127.0.0.1`: health, static index, demo status, local storage, and hostile Host/Origin rejection. |
+| Command                          | Final result                                                                                                                                                                                         |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                                                                                                                        |
+| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                                                                                                             |
+| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                         |
+| `pnpm test`                      | Passed; 4 files and 12 behavioral tests, including projects/canon/revisions, context bounds, ownership, continuation, demo fidelity, and version-1 local archive migration.                          |
+| `pnpm build`                     | Passed; 1,769 client modules and the bundled server production artifact were emitted.                                                                                                                |
+| `pnpm audit --prod`              | Passed; no known production dependency vulnerabilities.                                                                                                                                              |
+| `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                   |
+| Drizzle schema check             | Passed; generated migrations and snapshots match the eight-table schema with no ungenerated changes.                                                                                                 |
+| production browser QA            | Passed on `127.0.0.1`: project/canon creation, context preview, demo generation, editing, revision history, continuation URL/privacy, 390px layout, and final zero-error/zero-warning console check. |
 
-No external provider call, deployment, package publication, account creation, or paid operation was performed.
+No external provider call, live MySQL migration, deployment, package publication, account creation, or paid operation was performed. MySQL DDL was generated and schema-drift checked, but applying it remains dependent on an operator-supplied database.
+
+The Codex Security workbench could not initialize its local helper and returned no scan ID or artifacts. No formal scanner result is claimed. A manual release-diff review instead covered project/story ownership, context and editor input bounds, export scope, continuation data exposure, local atomic writes and migration behavior, MySQL transaction/retention behavior, and client response size; its locally actionable response-size finding was fixed before the final gate.
 
 ## Deferred work and rationale
 
-- A full manuscript editor and story bible are higher-value than the existing speculative QoL schema, but neither is required to validate the release journey.
+- Project JSON import is deferred until schema validation, conflict handling, and recovery semantics are designed; the current export is still useful as a readable backup and portability artifact.
+- Scene planning and chapter reordering are deferred until an explicit ordering model replaces inferred chapter numbers.
 - Multi-user hosted collaboration, billing, and subscriptions would expand operational and privacy scope without evidence.
 - PDF export adds layout and dependency work; Markdown is sufficient for the first release.
 

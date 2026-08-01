@@ -1,10 +1,10 @@
 # Samsarix Story Studio
 
-Samsarix Story Studio is a local-first fiction workshop from Samsarix LLC for writers who want to inspect and control a bounded, multi-stage AI drafting process. Enter a premise, generate a complete draft, review plainly labeled workflow metadata, keep the result in a local archive, continue it as a new chapter, and export Markdown.
+Samsarix Story Studio is a local-first manuscript workspace from Samsarix LLC for writers who want explicit control over both their story canon and a bounded, multi-stage AI drafting process. Build a project, record characters and world rules, preview the exact canon entries selected for a chapter, generate or edit the manuscript, recover prior revisions, and export portable files.
 
 The default experience is a deterministic, no-key demo. It does not call an AI provider and is labeled as demo output throughout the interface. Add one supported provider key to use the provider-backed workflow; missing preferred providers fall back to the provider you configured.
 
-This repository is a coherent local MVP. It is not a hosted collaboration service, a full manuscript editor, or a scientific consciousness system. The retained “UCF” values are legacy creative-process heuristics, not measurements of consciousness or guarantees of quality or safety.
+This repository is a coherent local product candidate. It is not a hosted collaboration service, a desktop installer, or a scientific consciousness system. The retained “UCF” values are legacy creative-process heuristics, not measurements of consciousness or guarantees of quality or safety.
 
 ## Quick start
 
@@ -27,14 +27,16 @@ Set `SAMSARIX_DATA_FILE` to choose another location. Existing default data at `.
 
 ## Primary workflow
 
-1. Open the studio and enter a 10–1,000 character premise.
-2. Optionally refine the prompt locally; this operation has no provider cost.
-3. Choose a preset or enable up to seven agent roles.
-4. Generate a clearly labeled demo or provider-backed story.
-5. Review the story, heuristic scores, and provider/role contributions.
-6. Reopen it from the archive, download Markdown, or prepare the next chapter.
+1. Create a project with a premise, genre, and optional style guidance.
+2. Add characters, locations, factions, items, or lore to its canon. Entries can be always-on or activated by names and phrases.
+3. Draft a chapter. Before generation, review the selected canon entries and approximate context-token count; manually include any additional entry.
+4. Choose a preset or enable up to seven agent roles, then create a clearly labeled demo or provider-backed draft.
+5. Edit the chapter directly. Every save keeps the prior title and manuscript as a recoverable revision; the newest 50 snapshots per chapter are retained.
+6. Continue the manuscript, reopen any draft from the archive, export combined Markdown, or download a versioned project JSON backup.
 
-Generation is currently request/response rather than streaming. The progress display describes the planned stages; it does not claim live per-agent telemetry.
+Standalone drafts remain supported when a project would be unnecessary.
+
+Generation is currently request/response rather than streaming. The progress display describes the planned stages; it does not claim live per-agent telemetry. Project context is capped at eight canon entries and 6,000 characters. Its token estimate uses the transparent approximation of four characters per token; provider billing remains authoritative.
 
 ## Provider mode
 
@@ -97,14 +99,14 @@ The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint expo
 ## Privacy and safety
 
 - The default build has no analytics and makes no font or provider request in demo mode.
-- Local stories can contain sensitive text; protect and back up the data file accordingly.
+- Local projects, canon, revisions, and stories can contain sensitive text; protect and back up the data file accordingly.
 - In provider mode, prompts, intermediate material, and drafts are sent to the configured provider. Review that provider’s retention and training terms.
 - Generated text can be incorrect, biased, derivative, or unwanted. “Quality,” “ethical review,” and UCF metadata are advisory heuristics only.
 - Prompt validation, story ownership checks, loopback enforcement, body limits, timeouts, retry limits, and call ceilings reduce risk; they do not make hosted multi-user operation production-ready.
 
 ## Scope and known limitations
 
-The release intentionally does not include in-place manuscript editing, version history, streaming/cancellation, public sharing, PDF export, billing, collaboration, or a full story bible. Archive search is client-side and suited to a personal library. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
+The release intentionally does not include streaming/cancellation, project-import restore, chapter reordering, scene planning, public sharing, PDF/EPUB export, billing, or collaboration. Archive search is client-side and suited to a personal library. JSON backup is export-only in this release; restore requires a future schema-validating import flow. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
 
 Legacy component examples remain outside the active TypeScript and runtime graph so historical UI source is preserved without making it part of the release contract. Incomplete QoL helpers and private-platform runtime adapters were removed. Future cleanup is tracked in [the productization record](docs/PRODUCTIZATION.md).
 

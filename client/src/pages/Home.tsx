@@ -31,6 +31,12 @@ export default function Home() {
             className="flex items-center gap-3 sm:gap-5"
           >
             <Link
+              href="/projects"
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              Projects
+            </Link>
+            <Link
               href="/archive"
               className="text-sm text-muted-foreground hover:text-foreground"
             >
@@ -58,9 +64,9 @@ export default function Home() {
                 <span className="block text-gradient">Give it structure.</span>
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
-                Turn one sharp premise into a complete speculative-fiction draft
-                through a visible, bounded multi-stage workflow. Your archive
-                stays on your machine by default.
+                Plan a project, keep its canon consistent, and turn sharp
+                premises into editable chapters through a visible, bounded
+                workflow. Your manuscript stays on your machine by default.
               </p>
               <div className="mt-9 flex flex-col gap-3 sm:flex-row">
                 <Button asChild size="lg" className="group px-7 text-base">
@@ -95,7 +101,7 @@ export default function Home() {
                     Current workflow
                   </p>
                   <p className="mt-1 font-semibold">
-                    Premise → draft → archive
+                    Project → canon → chapters
                   </p>
                 </div>
                 <span
@@ -123,8 +129,8 @@ export default function Home() {
                   ],
                   [
                     "04",
-                    "Synthesis + review",
-                    "Create the draft, then label advisory checks.",
+                    "Synthesis + record",
+                    "Create the draft and record the workflow used.",
                   ],
                 ].map(([number, title, description]) => (
                   <div key={number} className="workflow-step">
@@ -148,25 +154,25 @@ export default function Home() {
             </h2>
             <p className="mt-4 text-muted-foreground">
               Samsarix does not pretend a dashboard is a writing practice. It
-              gives you one complete drafting loop, transparent configuration,
+              gives you a recoverable manuscript workspace, transparent context,
               and portable output.
             </p>
           </div>
           <div className="mt-10 grid gap-5 md:grid-cols-3">
             <article className="feature-card">
               <Braces className="h-6 w-6 text-primary" />
-              <h3>Inspect the orchestration</h3>
+              <h3>See the context</h3>
               <p>
-                Choose a preset or tune agent roles and provider preferences
-                when a key is configured.
+                Keep characters and world rules in canon, then preview exactly
+                which entries a chapter will use.
               </p>
             </article>
             <article className="feature-card">
               <Database className="h-6 w-6 text-primary" />
               <h3>Own the archive</h3>
               <p>
-                Stories persist to a local JSON file by default and export as
-                plain Markdown.
+                Projects, chapters, canon, and revisions persist locally and
+                export as Markdown or a complete JSON backup.
               </p>
             </article>
             <article className="feature-card">

@@ -7,6 +7,10 @@ dist/
 build/
 *.dist
 
+# Local browser-QA artifacts
+.playwright-cli/
+output/playwright/
+
 # Environment variables
 .env
 .env.local

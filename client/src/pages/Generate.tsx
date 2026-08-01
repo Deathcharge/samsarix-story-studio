@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   CircleAlert,
@@ -42,7 +42,12 @@ function getContinuationParameters() {
 export default function Generate() {
   const [, setLocation] = useLocation();
   const continuation = useMemo(getContinuationParameters, []);
-  const [prompt, setPrompt] = useState(continuation.get("prompt") ?? "");
+  const initialProjectId = Number(continuation.get("projectId")) || null;
+  const previousStoryId = Number(continuation.get("previousStoryId")) || null;
+  const [prompt, setPrompt] = useState("");
+  const [projectId, setProjectId] = useState<number | null>(initialProjectId);
+  const [selectedCanonIds, setSelectedCanonIds] = useState<number[]>([]);
+  const [continuationApplied, setContinuationApplied] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("Ready");
   const [enhancedData, setEnhancedData] = useState<{
@@ -59,6 +64,24 @@ export default function Generate() {
   const status = statusQuery.data;
   const { data: agents } = trpc.config.agents.useQuery();
   const { data: presets } = trpc.config.presets.useQuery();
+  const { data: projects } = trpc.projects.list.useQuery();
+  const projectQuery = trpc.projects.get.useQuery(
+    { id: projectId ?? 0 },
+    { enabled: Boolean(projectId), retry: false }
+  );
+  const continuationQuery = trpc.stories.prepareContinuation.useQuery(
+    { previousStoryId: previousStoryId ?? 0 },
+    { enabled: Boolean(previousStoryId), retry: false }
+  );
+  const deferredPrompt = useDeferredValue(prompt);
+  const contextQuery = trpc.projects.previewContext.useQuery(
+    {
+      projectId: projectId ?? 0,
+      prompt: deferredPrompt.trim().slice(0, 1_000),
+      selectedCanonIds,
+    },
+    { enabled: Boolean(projectId), retry: false }
+  );
 
   const enhanceMutation = trpc.prompts.enhance.useMutation({
     onSuccess: data => {
@@ -92,6 +115,13 @@ export default function Generate() {
     return () => window.clearInterval(interval);
   }, [generateMutation.isPending]);
 
+  useEffect(() => {
+    if (!continuationQuery.data || continuationApplied) return;
+    setPrompt(continuationQuery.data.prompt);
+    setProjectId(continuationQuery.data.projectId ?? null);
+    setContinuationApplied(true);
+  }, [continuationApplied, continuationQuery.data]);
+
   const trimmedPrompt = prompt.trim();
   const canGenerate =
     Boolean(status) &&
@@ -112,10 +142,9 @@ export default function Generate() {
         | "research"
         | undefined,
       customAgents: generationConfig.customAgents,
-      seriesId: continuation.get("seriesId") || undefined,
-      chapterNumber: Number(continuation.get("chapterNumber")) || undefined,
-      previousChapterId:
-        Number(continuation.get("previousChapterId")) || undefined,
+      projectId: projectId ?? undefined,
+      selectedCanonIds,
+      previousChapterId: previousStoryId ?? undefined,
     });
   };
 
@@ -131,6 +160,12 @@ export default function Generate() {
             aria-label="Primary navigation"
             className="flex items-center gap-5 text-sm"
           >
+            <Link
+              href="/projects"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Projects
+            </Link>
             <Link href="/generate" className="font-medium text-primary">
               Studio
             </Link>
@@ -156,7 +191,7 @@ export default function Generate() {
             <div>
               <p className="eyebrow">Writing workspace</p>
               <h1 className="mt-2 text-3xl font-bold md:text-4xl">
-                {continuation.has("seriesId")
+                {previousStoryId
                   ? "Draft the next chapter"
                   : "Turn a premise into a complete draft"}
               </h1>
@@ -202,6 +237,44 @@ export default function Generate() {
           )}
 
           <Card className="space-y-6 border-primary/20 p-6 md:p-8">
+            <div className="space-y-2">
+              <label
+                htmlFor="project-context"
+                className="text-sm font-semibold"
+              >
+                Project context{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </label>
+              <select
+                id="project-context"
+                value={projectId ?? ""}
+                onChange={event => {
+                  setProjectId(Number(event.target.value) || null);
+                  setSelectedCanonIds([]);
+                }}
+                disabled={Boolean(previousStoryId)}
+                className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="" className="bg-background">
+                  Standalone draft
+                </option>
+                {projects?.map(project => (
+                  <option
+                    key={project.id}
+                    value={project.id}
+                    className="bg-background"
+                  >
+                    {project.title}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Project briefs and selected canon stay visible and bounded
+                before generation.
+              </p>
+            </div>
             <div className="space-y-2">
               <label htmlFor="story-prompt" className="text-sm font-semibold">
                 Story premise
@@ -267,6 +340,72 @@ export default function Generate() {
                 </p>
               </div>
             )}
+
+            {projectQuery.data ? (
+              <div className="space-y-4 rounded-xl border border-border/70 bg-muted/25 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <strong>{projectQuery.data.project.title} context</strong>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {contextQuery.data
+                        ? `${contextQuery.data.entries.length} ${contextQuery.data.entries.length === 1 ? "canon entry" : "canon entries"} · about ${contextQuery.data.estimatedTokens.toLocaleString()} input tokens`
+                        : "Calculating context…"}
+                    </p>
+                  </div>
+                  {contextQuery.data?.truncated ? (
+                    <span className="status-pill">bounded</span>
+                  ) : null}
+                </div>
+                {projectQuery.data.canon.length > 0 ? (
+                  <fieldset className="grid gap-2 sm:grid-cols-2">
+                    <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      Manually include canon
+                    </legend>
+                    {projectQuery.data.canon.map(entry => {
+                      const selected = selectedCanonIds.includes(entry.id);
+                      const active = contextQuery.data?.entries.find(
+                        item => item.id === entry.id
+                      );
+                      return (
+                        <label
+                          key={entry.id}
+                          className="flex items-start gap-2 rounded-lg border border-border/60 p-3 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={
+                              !selected && selectedCanonIds.length >= 20
+                            }
+                            onChange={event =>
+                              setSelectedCanonIds(current =>
+                                event.target.checked
+                                  ? [...current, entry.id]
+                                  : current.filter(id => id !== entry.id)
+                              )
+                            }
+                          />
+                          <span>
+                            <span className="block font-medium">
+                              {entry.name}
+                            </span>
+                            <span className="text-xs text-muted-foreground capitalize">
+                              {active ? `${active.reason} · ` : ""}
+                              {entry.kind}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </fieldset>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    This project has no canon entries yet. Its premise and style
+                    guidance will still be included.
+                  </p>
+                )}
+              </div>
+            ) : null}
 
             {!isDemo && agents && presets && status && (
               <AgentConfigurator
@@ -341,7 +480,7 @@ export default function Generate() {
             </Card>
           )}
 
-          {!generateMutation.isPending && !continuation.has("seriesId") && (
+          {!generateMutation.isPending && !previousStoryId && (
             <section aria-labelledby="prompt-examples" className="space-y-3">
               <h2
                 id="prompt-examples"

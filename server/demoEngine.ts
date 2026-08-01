@@ -28,25 +28,39 @@ function titleFromPrompt(prompt: string) {
   return words.length > 0 ? `${words.join(" ")} Protocol` : "Neon Protocol";
 }
 
-export function executeDemoRitual(prompt: string) {
+export function executeDemoRitual(prompt: string, context?: string) {
   const hash = hashPrompt(prompt);
-  const protagonist = PROTAGONISTS[hash % PROTAGONISTS.length];
+  const contextEntries = [
+    ...(context?.matchAll(/^\[([^\]]+)\]\s+(.+)$/gm) ?? []),
+  ].map(match => ({ kind: match[1].trim(), name: match[2].trim() }));
+  const protagonist =
+    contextEntries.find(entry => entry.kind === "character")?.name ??
+    PROTAGONISTS[hash % PROTAGONISTS.length];
   const district = DISTRICTS[(hash >>> 3) % DISTRICTS.length];
   const corporation = CORPORATIONS[(hash >>> 5) % CORPORATIONS.length];
+  const corporationPossessive = corporation.endsWith("s")
+    ? `${corporation}'`
+    : `${corporation}'s`;
   const title = titleFromPrompt(prompt);
   const ritualId = `demo_${randomUUID()}`;
+  const canonNames = contextEntries.map(entry => entry.name).slice(0, 3);
+  const promptSentence = prompt.trim().replace(/[.!?]+$/, "");
+  const canonNote =
+    canonNames.length > 0
+      ? ` The project canon marked ${canonNames.join(", ")} as established details, so ${protagonist} treated those names as facts rather than suggestions.`
+      : "";
 
   const storyText = `# ${title}
 
-Rain moved through ${district} in silver sheets, turning every advertisement into a trembling second sky. ${protagonist} watched it from beneath the tram line while the city repeated the brief that had brought them here: ${prompt.trim()}.
+Rain moved through ${district} in silver sheets, turning every advertisement into a trembling second sky. ${protagonist} watched it from beneath the tram line while the city repeated the brief that had brought them here: ${promptSentence}.
 
-The words had arrived without a sender, folded into an obsolete audio file and buried inside a municipal weather report. That was the sort of hiding place people used when they expected both machines and people to be listening. ${protagonist} had replayed it seven times. Each pass exposed another sound under the voice: a station bell, a ventilation fan, and the soft three-note signature of ${corporation}'s private network.
+The words had arrived without a sender, folded into an obsolete audio file and buried inside a municipal weather report. That was the sort of hiding place people used when they expected both machines and people to be listening. ${protagonist} had replayed it seven times. Each pass exposed another sound under the voice: a station bell, a ventilation fan, and the soft three-note signature of ${corporationPossessive} private network.${canonNote}
 
 At midnight, the last public tram carried ${protagonist} above the flooded avenues. Below, food carts closed their armor shutters while courier drones returned to their charging hives. The city looked automated from that height. Up close, it was held together by night-shift mechanics, borrowed access cards, and people making decisions no system had predicted.
 
 The trail ended at a records annex marked for demolition. Its doors recognized no living employee, but the maintenance panel still trusted a copper key. Inside, cold air rolled between stacks of humming archive cells. ${protagonist} found the hidden file where the message promised it would be. It was not a weapon or a ledger. It was a sequence of ordinary memories: a kitchen at dawn, an argument left unfinished, a hand held during a hospital blackout.
 
-Each memory belonged to someone whose public record said they had volunteered for ${corporation}'s civic-assistance program. The consent forms were perfect. The timestamps were not. They had been signed after the memories were taken.
+Each memory belonged to someone whose public record said they had volunteered for ${corporationPossessive} civic-assistance program. The consent forms were perfect. The timestamps were not. They had been signed after the memories were taken.
 
 An elevator opened behind ${protagonist}. Director Ansel Rook stepped out alone, his expensive coat dark with real rain. “You expected security,” he said. “Security would turn this into evidence. I need it to remain a choice.”
 

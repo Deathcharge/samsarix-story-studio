@@ -29,6 +29,20 @@
       "when": 1761954041660,
       "tag": "0003_strange_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1785622920823,
+      "tag": "0004_projects_canon_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1785623039566,
+      "tag": "0005_manuscript_mediumtext",
+      "breakpoints": true
     }
   ]
 }

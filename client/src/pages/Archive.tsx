@@ -5,7 +5,6 @@ import {
   CircleAlert,
   FileText,
   Search,
-  ShieldCheck,
   Sparkles,
   Zap,
 } from "lucide-react";
@@ -40,6 +39,12 @@ export default function Archive() {
             aria-label="Primary navigation"
             className="flex items-center gap-5 text-sm"
           >
+            <Link
+              href="/projects"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Projects
+            </Link>
             <Link
               href="/generate"
               className="text-muted-foreground hover:text-foreground"
@@ -144,21 +149,13 @@ export default function Archive() {
                         <FileText className="mr-1 h-3 w-3" />
                         {story.wordCount} words
                       </Badge>
-                      {story.ethicalApproval && (
-                        <Badge variant="outline">
-                          <ShieldCheck className="mr-1 h-3 w-3" />
-                          Review passed
-                        </Badge>
-                      )}
                     </div>
                     <div className="mt-6 flex items-center justify-between border-t border-border/50 pt-4 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         Saved locally
                       </span>
-                      <span>
-                        {Math.round(story.qualityScore * 100)}% advisory score
-                      </span>
+                      <span>Open draft</span>
                     </div>
                   </Card>
                 </Link>

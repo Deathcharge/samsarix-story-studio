@@ -14,10 +14,10 @@ Current disposition: Merge the productization branch after exact-head verificati
 - Keep the default branch buildable from a clean checkout and preserve exact-head CI evidence.
 - Keep Samsarix LLC branding, package identity, license metadata, and compatibility aliases internally consistent.
 - Preserve the pre-productization default under a rollback ref before merging; do not delete legacy history.
-- Review priority: Make review metadata truthful.
-- Review priority: persist logs/trajectories.
-- Review priority: remove story text from continuation URLs.
-- Review priority: make persistence consistent.
+- Review priority: Make review metadata truthful. (UI labels corrected in 1.1; engine metadata redesign remains.)
+- Review priority: persist logs/trajectories or remove the legacy routes.
+- [x] Remove story text from continuation URLs.
+- [x] Make local persistence commits consistent after write failure.
 - Review priority: test cancellation/custom endpoints.
 
 ## Release candidate
@@ -32,7 +32,7 @@ Current hardening backlog:
 - No committed tests cover provider SDK contracts, MySQL, disk failure/corruption, generation cancellation, or the in-flight guard.
 - “Automated review passed,” quality/UCF scores, agent logs, and trajectories overstate the evidence currently recorded: review can default to success, UCF values are derived constants, tokens are zero placeholders, and new stories write no log/trajectory rows.
 - Provider defaults and response compatibility can drift; five adapters plus unrestricted `OPENAI_BASE_URL` create ongoing maintenance/security work.
-- Continuation mutates the prior record before a new chapter exists and puts story-derived text in the URL.
+- Project backups are export-only until schema-validating import and conflict recovery are implemented.
 - Optional MySQL expands scope without evidence it is necessary or CI-covered; local-store write failure can leave disk and memory inconsistent.
 - No desktop installer or hosted distribution path; source checkout is the current route.
 - Legal ownership, BSL parameters, and branding need explicit owner approval.

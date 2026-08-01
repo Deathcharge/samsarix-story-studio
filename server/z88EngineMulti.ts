@@ -51,6 +51,7 @@ export interface CreativeRitualResult {
 
 export interface RitualOptions {
   preset?: string; // Preset mode ID
+  context?: string;
   customAgents?: Array<{
     agentId: string;
     provider?: LLMProvider;
@@ -66,7 +67,7 @@ export async function executeCreativeRitualMulti(
   options: RitualOptions = {}
 ): Promise<CreativeRitualResult> {
   if (getConfiguredProviders().length === 0) {
-    return executeDemoRitual(prompt);
+    return executeDemoRitual(prompt, options.context);
   }
 
   const ritualId = `ritual_${randomUUID()}`;
@@ -105,6 +106,8 @@ export async function executeCreativeRitualMulti(
       `Create a detailed three-act plot structure for this cyberpunk story prompt:
 
 "${prompt}"
+
+${options.context ? `Use this writer-approved project context as canon:\n${options.context}` : ""}
 
 Provide:
 1. **Act I Setup**: Introduce protagonist, world, and initial conflict
@@ -236,6 +239,8 @@ Keep it brief but credible.`
           content: `Create a complete cyberpunk short story using these elements:
 
 **Original Prompt**: ${prompt}
+
+${options.context ? `**Writer-approved project context**:\n${options.context}\n` : ""}
 
 **Plot Structure**:
 ${plotStructure}

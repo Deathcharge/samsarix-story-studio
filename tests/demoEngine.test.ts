@@ -22,4 +22,22 @@ describe("local no-key tools", () => {
     expect(result.enhanced.length).toBeGreaterThan(result.original.length);
     expect(result.suggestedThemes).toContain("personhood");
   });
+
+  it("uses selected character canon in the no-key demonstration", () => {
+    const result = executeDemoRitual(
+      "A cartographer follows a route erased from every city map.",
+      "Project: Lost Hours\n\n[character] Nera Vale\nNera keeps paper copies of every route."
+    );
+
+    expect(result.storyText).toContain("Nera Vale watched it");
+    expect(result.storyText).not.toContain("details, so Jonah");
+  });
+
+  it("formats organization possessives without a doubled s", () => {
+    const result = executeDemoRitual(
+      "Nera finds a station clock counting down the names of passengers who vanished."
+    );
+
+    expect(result.storyText).not.toMatch(/(?:Systems|Humanics)'s/);
+  });
 });
