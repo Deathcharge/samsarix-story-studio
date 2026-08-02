@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   agentLogs,
@@ -23,6 +23,21 @@ import * as localStore from "./localStore";
 import { prepareProjectImport } from "./projectImport";
 
 let database: ReturnType<typeof drizzle> | null = null;
+
+function chapterNumberOrderCase(orderedStoryIds: number[]) {
+  const cases = orderedStoryIds.map(
+    (id, index) => sql`WHEN ${stories.id} = ${id} THEN ${index + 1}`
+  );
+  return sql`CASE ${sql.join(cases, sql.raw(" "))} ELSE ${stories.chapterNumber} END`;
+}
+
+function previousChapterOrderCase(orderedStoryIds: number[]) {
+  const cases = orderedStoryIds.map(
+    (id, index) =>
+      sql`WHEN ${stories.id} = ${id} THEN ${index === 0 ? null : orderedStoryIds[index - 1]}`
+  );
+  return sql`CASE ${sql.join(cases, sql.raw(" "))} ELSE ${stories.previousChapterId} END`;
+}
 
 export function getStorageMode() {
   return process.env.DATABASE_URL ? "mysql" : "local-file";
@@ -220,16 +235,21 @@ export async function createPlannedChapter(input: {
     });
     const storyId = Number(inserted[0].insertId);
     const orderedIds = [...existingStories.map(story => story.id), storyId];
-    for (const [index, id] of orderedIds.entries()) {
-      await transaction
-        .update(stories)
-        .set({
-          seriesId: `project_${input.projectId}`,
-          chapterNumber: index + 1,
-          previousChapterId: index === 0 ? null : orderedIds[index - 1],
-        })
-        .where(eq(stories.id, id));
-    }
+    await transaction
+      .update(stories)
+      .set({
+        seriesId: `project_${input.projectId}`,
+        chapterNumber: chapterNumberOrderCase(orderedIds),
+        previousChapterId: previousChapterOrderCase(orderedIds),
+      })
+      .where(
+        and(
+          inArray(stories.id, orderedIds),
+          eq(stories.projectId, input.projectId),
+          eq(stories.userId, input.userId),
+          isNull(stories.deletedAt)
+        )
+      );
     await transaction
       .update(projects)
       .set({ updatedAt: new Date() })
@@ -311,15 +331,22 @@ export async function reorderProjectStories(
     const projectStoryIds = new Set(projectStories.map(story => story.id));
     if (orderedStoryIds.some(id => !projectStoryIds.has(id))) return false;
 
-    for (const [index, id] of orderedStoryIds.entries()) {
+    if (orderedStoryIds.length > 0) {
       await transaction
         .update(stories)
         .set({
           seriesId: `project_${projectId}`,
-          chapterNumber: index + 1,
-          previousChapterId: index === 0 ? null : orderedStoryIds[index - 1],
+          chapterNumber: chapterNumberOrderCase(orderedStoryIds),
+          previousChapterId: previousChapterOrderCase(orderedStoryIds),
         })
-        .where(eq(stories.id, id));
+        .where(
+          and(
+            inArray(stories.id, orderedStoryIds),
+            eq(stories.projectId, projectId),
+            eq(stories.userId, userId),
+            isNull(stories.deletedAt)
+          )
+        );
     }
     await transaction
       .update(projects)

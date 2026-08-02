@@ -544,34 +544,28 @@ export default function Story() {
                   <Card className="p-6">
                     <h2 className="text-lg font-bold">Agent contributions</h2>
                     <div className="mt-5 space-y-3">
-                      {contributions.length > 0 ? (
-                        contributions.map(contribution => (
-                          <div
-                            key={contribution.name}
-                            className="rounded-lg border border-border/50 p-3"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <strong className="capitalize">
-                                {contribution.name}
-                              </strong>
-                              {contribution.provider && (
-                                <span className="status-pill">
-                                  {contribution.provider}
-                                </span>
-                              )}
-                            </div>
-                            {contribution.role && (
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                {contribution.role}
-                              </p>
+                      {contributions.map(contribution => (
+                        <div
+                          key={contribution.name}
+                          className="rounded-lg border border-border/50 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <strong className="capitalize">
+                              {contribution.name}
+                            </strong>
+                            {contribution.provider && (
+                              <span className="status-pill">
+                                {contribution.provider}
+                              </span>
                             )}
                           </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          No contribution metadata was recorded.
-                        </p>
-                      )}
+                          {contribution.role && (
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {contribution.role}
+                            </p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </Card>
                   {trajectoryQuery.data && trajectoryQuery.data.length > 0 && (

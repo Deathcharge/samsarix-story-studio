@@ -17,7 +17,10 @@ import type {
   UcfState,
   User,
 } from "../drizzle/schema";
-import type { ChapterStatus } from "../shared/chapterPlanning";
+import {
+  DEFAULT_CHAPTER_STATUS,
+  type ChapterStatus,
+} from "../shared/chapterPlanning";
 import type { ProjectImportPlan } from "./projectImport";
 
 type LocalState = {
@@ -147,7 +150,7 @@ function migrateState(
       version: 3,
       stories: parsed.stories.map(story => ({
         ...story,
-        draftStatus: "drafting",
+        draftStatus: DEFAULT_CHAPTER_STATUS,
         synopsis: null,
       })),
     };
@@ -171,7 +174,7 @@ function migrateState(
     stories: parsed.stories.map(story => ({
       ...story,
       projectId: null,
-      draftStatus: "drafting",
+      draftStatus: DEFAULT_CHAPTER_STATUS,
       synopsis: null,
     })),
     canonEntries: [],
@@ -367,6 +370,8 @@ function orderProjectStories(
   projectId: number,
   updatedAt: Date
 ) {
+  // A project is one manuscript sequence. Reordering intentionally normalizes
+  // every chapter into its stable project series as well as rebuilding links.
   const seriesId = `project_${projectId}`;
   projectStories.forEach((story, index) => {
     story.seriesId = seriesId;
@@ -655,7 +660,7 @@ export async function createStory(story: InsertStory) {
       seriesId: story.seriesId ?? null,
       chapterNumber: story.chapterNumber ?? null,
       previousChapterId: story.previousChapterId ?? null,
-      draftStatus: story.draftStatus ?? "drafting",
+      draftStatus: story.draftStatus ?? DEFAULT_CHAPTER_STATUS,
       synopsis: story.synopsis ?? null,
       collectionId: story.collectionId ?? null,
       tags: story.tags ?? null,

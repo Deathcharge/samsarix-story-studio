@@ -195,7 +195,9 @@ export function ChapterBoard({
     const targetIndex = next.findIndex(story => story.id === targetId);
     if (fromIndex < 0 || targetIndex < 0) return;
     const [moved] = next.splice(fromIndex, 1);
-    next.splice(targetIndex, 0, moved);
+    const insertionIndex = next.findIndex(story => story.id === targetId);
+    if (insertionIndex < 0) return;
+    next.splice(insertionIndex, 0, moved);
     setDraggedId(null);
     saveOrder(next);
   };
@@ -218,6 +220,7 @@ export function ChapterBoard({
 
       {orderedStories.length > 0 ? (
         <div
+          role="group"
           className="flex flex-wrap gap-2"
           aria-label="Chapter status totals"
         >
@@ -337,13 +340,16 @@ export function ChapterBoard({
                   </p>
                   <PlanningEditor
                     chapter={story}
-                    disabled={planningPending}
+                    disabled={
+                      planningPending &&
+                      updatePlanning.variables?.storyId === story.id
+                    }
                     onSave={(draftStatus, synopsis) =>
                       updatePlanning.mutate({
                         projectId,
                         storyId: story.id,
                         draftStatus,
-                        synopsis: synopsis || undefined,
+                        synopsis,
                       })
                     }
                   />

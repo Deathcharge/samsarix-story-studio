@@ -84,6 +84,23 @@ function presentStory(story: Story) {
   };
 }
 
+function presentProjectStory(story: Story) {
+  return {
+    id: story.id,
+    title: story.title,
+    prompt: story.prompt,
+    ritualId: story.ritualId,
+    wordCount: story.wordCount,
+    createdAt: story.createdAt,
+    updatedAt: story.updatedAt,
+    seriesId: story.seriesId,
+    chapterNumber: story.chapterNumber,
+    previousChapterId: story.previousChapterId,
+    draftStatus: story.draftStatus,
+    synopsis: story.synopsis,
+  };
+}
+
 async function requireProject(projectId: number, userId: number) {
   const project = await db.getProjectById(projectId, userId);
   if (!project) {
@@ -150,20 +167,7 @@ export const appRouter = router({
         ]);
         return {
           project,
-          stories: stories.map(story => ({
-            id: story.id,
-            title: story.title,
-            prompt: story.prompt,
-            ritualId: story.ritualId,
-            wordCount: story.wordCount,
-            createdAt: story.createdAt,
-            updatedAt: story.updatedAt,
-            seriesId: story.seriesId,
-            chapterNumber: story.chapterNumber,
-            previousChapterId: story.previousChapterId,
-            draftStatus: story.draftStatus,
-            synopsis: story.synopsis,
-          })),
+          stories: stories.map(presentProjectStory),
           canon: canon.map(entry => ({
             ...entry,
             activationKeys: parseActivationKeys(entry.activationKeys),
@@ -203,7 +207,7 @@ export const appRouter = router({
           synopsis: input.synopsis || null,
         });
         if (!created) throw new TRPCError({ code: "NOT_FOUND" });
-        return created;
+        return presentProjectStory(created);
       }),
 
     updateChapterPlanning: protectedProcedure
@@ -468,15 +472,17 @@ export const appRouter = router({
           const projectStories = project
             ? await db.getStoriesByProject(project.id, ctx.user.id)
             : [];
-          const continuityStory = previousStory ?? projectStories.at(-1);
-          const seriesId = continuityStory
-            ? continuityStory.seriesId ||
-              generateSeriesId(`story_${continuityStory.id}`)
+          // Project order is structural: blank planned chapters remain real
+          // predecessors instead of disappearing from the manuscript chain.
+          const previousProjectChapter = previousStory ?? projectStories.at(-1);
+          const seriesId = previousProjectChapter
+            ? previousProjectChapter.seriesId ||
+              generateSeriesId(`story_${previousProjectChapter.id}`)
             : project
               ? `project_${project.id}`
               : input.seriesId;
-          const chapterNumber = continuityStory
-            ? (continuityStory.chapterNumber ?? 1) + 1
+          const chapterNumber = previousProjectChapter
+            ? (previousProjectChapter.chapterNumber ?? 1) + 1
             : project
               ? Math.max(
                   0,
@@ -526,13 +532,13 @@ export const appRouter = router({
             ),
             seriesId,
             chapterNumber,
-            previousChapterId: continuityStory?.id,
+            previousChapterId: previousProjectChapter?.id,
           });
 
-          if (continuityStory && !continuityStory.seriesId) {
-            await db.updateStory(continuityStory.id, ctx.user.id, {
+          if (previousProjectChapter && !previousProjectChapter.seriesId) {
+            await db.updateStory(previousProjectChapter.id, ctx.user.id, {
               seriesId,
-              chapterNumber: continuityStory.chapterNumber ?? 1,
+              chapterNumber: previousProjectChapter.chapterNumber ?? 1,
             });
           }
 

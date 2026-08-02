@@ -270,7 +270,25 @@ describe("primary local story journey", () => {
       title: "The False Crossing",
       synopsis: "The crew reaches a harbor that exists on only one map.",
     });
+    expect(crossing.draftStatus).toBe("planned");
 
+    await caller.projects.updateChapterPlanning({
+      projectId: project.id,
+      storyId: crossing.id,
+      draftStatus: "revising",
+      synopsis: "The crew reaches a harbor that exists on only one map.",
+    });
+    await caller.projects.updateChapterPlanning({
+      projectId: project.id,
+      storyId: crossing.id,
+      draftStatus: "revising",
+      synopsis: "",
+    });
+    expect(
+      (await caller.projects.get({ id: project.id })).stories.find(
+        story => story.id === crossing.id
+      )?.synopsis
+    ).toBeNull();
     await caller.projects.updateChapterPlanning({
       projectId: project.id,
       storyId: crossing.id,
