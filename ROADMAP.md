@@ -7,7 +7,7 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-story-studio` (ready).
 
-Current disposition: Versions 1.0 and 1.1 are merged product candidates. The 1.2 candidate and its command, browser, and CI evidence are recorded in `docs/PRODUCTIZATION.md` and its release pull request; merge, packaged distribution, a user pilot, and flagship adoption remain separate decisions.
+Current disposition: Versions 1.0 through 1.2 are merged product candidates. The 1.3 candidate and its command and browser evidence are recorded in `docs/PRODUCTIZATION.md`; merge and exact-head CI, packaged distribution, a user pilot, and flagship adoption remain separate decisions.
 
 ## Stabilize the productized default
 
@@ -33,6 +33,7 @@ Current hardening backlog:
 - “Automated review passed,” quality/UCF scores, agent logs, and trajectories overstate the evidence currently recorded: review can default to success, UCF values are derived constants, tokens are zero placeholders, and new stories write no log/trajectory rows.
 - Provider defaults and response compatibility can drift; five adapters plus unrestricted `OPENAI_BASE_URL` create ongoing maintenance/security work.
 - [x] Project backups round-trip through schema-validating, copy-only import with conflict-safe identity remapping.
+- [x] Chapter plans have explicit status and synopsis fields, and persisted ordering maintains a single continuity chain.
 - Optional MySQL expands scope without live database CI evidence; its import path is transaction-scoped and type/build checked only.
 - No desktop installer or hosted distribution path; source checkout is the current route.
 - Legal ownership, BSL parameters, and branding need explicit owner approval.

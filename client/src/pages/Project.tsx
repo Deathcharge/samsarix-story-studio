@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
-  BookOpen,
   CircleAlert,
   Download,
-  FilePenLine,
   Loader2,
   Plus,
   Save,
@@ -14,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useParams } from "wouter";
+import { ChapterBoard } from "@/components/ChapterBoard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -155,7 +154,16 @@ export default function Project() {
     const manuscript = [
       `# ${data.project.title}`,
       data.project.premise,
-      ...result.data.stories.map(story => `\n---\n\n${story.content}`),
+      ...result.data.stories.map(story =>
+        [
+          "\n---",
+          `## Chapter ${story.chapterNumber ?? "—"}: ${story.title}`,
+          story.synopsis ? `> ${story.synopsis.replaceAll("\n", "\n> ")}` : "",
+          story.content || "_Planned chapter — no manuscript text yet._",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      ),
     ].join("\n\n");
     download(
       `${safeName(data.project.title)}.md`,
@@ -370,59 +378,7 @@ export default function Project() {
           </details>
 
           <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-            <section aria-labelledby="chapters-heading" className="space-y-4">
-              <div>
-                <p className="eyebrow">Manuscript</p>
-                <h2 id="chapters-heading" className="mt-2 text-2xl font-bold">
-                  Chapters
-                </h2>
-              </div>
-              {data.stories.length > 0 ? (
-                data.stories.map(story => (
-                  <Link
-                    key={story.id}
-                    href={`/story/${story.ritualId}`}
-                    className="group block"
-                  >
-                    <Card className="story-card p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-primary">
-                            Chapter {story.chapterNumber ?? "—"}
-                          </p>
-                          <h3 className="mt-2 text-lg font-bold group-hover:text-primary">
-                            {story.title}
-                          </h3>
-                        </div>
-                        <FilePenLine className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                        {story.prompt}
-                      </p>
-                      <p className="mt-4 text-xs text-muted-foreground">
-                        {story.wordCount.toLocaleString()} words · edited{" "}
-                        {new Date(story.updatedAt).toLocaleDateString()}
-                      </p>
-                    </Card>
-                  </Link>
-                ))
-              ) : (
-                <Card className="p-10 text-center">
-                  <BookOpen className="mx-auto h-10 w-10 text-muted-foreground" />
-                  <h3 className="mt-4 text-lg font-bold">
-                    The manuscript is empty
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Add canon first, or draft chapter one now.
-                  </p>
-                  <Button asChild className="mt-5">
-                    <Link href={`/generate?projectId=${projectId}`}>
-                      Draft chapter one
-                    </Link>
-                  </Button>
-                </Card>
-              )}
-            </section>
+            <ChapterBoard projectId={projectId} stories={data.stories} />
 
             <section aria-labelledby="canon-heading" className="space-y-4">
               <div>

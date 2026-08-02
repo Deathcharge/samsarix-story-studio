@@ -253,6 +253,126 @@ describe("primary local story journey", () => {
     expect(await otherCaller.stories.list()).toEqual([]);
   });
 
+  it("plans blank chapters, updates status, reorders continuity, and restores the board", async () => {
+    const caller = await createCaller();
+    const project = await caller.projects.create({
+      title: "The Salt Meridian",
+      premise: "Two cartographers discover their coastlines disagree.",
+      genre: "fantasy",
+    });
+    const departure = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "Departure Lines",
+      synopsis: "Iria hides the official chart before the survey ship leaves.",
+    });
+    const crossing = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "The False Crossing",
+      synopsis: "The crew reaches a harbor that exists on only one map.",
+    });
+    expect(crossing.draftStatus).toBe("planned");
+
+    await caller.projects.updateChapterPlanning({
+      projectId: project.id,
+      storyId: crossing.id,
+      draftStatus: "revising",
+      synopsis: "The crew reaches a harbor that exists on only one map.",
+    });
+    await caller.projects.updateChapterPlanning({
+      projectId: project.id,
+      storyId: crossing.id,
+      draftStatus: "revising",
+      synopsis: "",
+    });
+    expect(
+      (await caller.projects.get({ id: project.id })).stories.find(
+        story => story.id === crossing.id
+      )?.synopsis
+    ).toBeNull();
+    await caller.projects.updateChapterPlanning({
+      projectId: project.id,
+      storyId: crossing.id,
+      draftStatus: "revising",
+      synopsis: "The crew reaches a harbor that exists on only one map.",
+    });
+    await caller.projects.reorderChapters({
+      projectId: project.id,
+      orderedStoryIds: [crossing.id, departure.id],
+    });
+
+    let workspace = await caller.projects.get({ id: project.id });
+    expect(workspace.stories.map(story => story.id)).toEqual([
+      crossing.id,
+      departure.id,
+    ]);
+    expect(workspace.stories.map(story => story.chapterNumber)).toEqual([1, 2]);
+    expect(workspace.stories[0].previousChapterId).toBeNull();
+    expect(workspace.stories[1].previousChapterId).toBe(crossing.id);
+    expect(workspace.stories[0].seriesId).toBe(`project_${project.id}`);
+    expect(workspace.stories[1].seriesId).toBe(`project_${project.id}`);
+    expect(workspace.stories[0].draftStatus).toBe("revising");
+
+    await expect(
+      caller.projects.reorderChapters({
+        projectId: project.id,
+        orderedStoryIds: [departure.id],
+      })
+    ).rejects.toThrow("every current project chapter");
+
+    await caller.stories.update({
+      id: departure.id,
+      title: "Departure Lines",
+      content: "Iria folded the forbidden chart beneath her coat.",
+    });
+    workspace = await caller.projects.get({ id: project.id });
+    expect(workspace.stories[1].draftStatus).toBe("drafting");
+    const blankRevision = await caller.stories.revisions({
+      storyId: departure.id,
+    });
+    expect(blankRevision).toHaveLength(1);
+    expect(blankRevision[0].content).toBe("");
+
+    const backup = await caller.projects.export({ id: project.id });
+    expect(backup.stories[0]).toMatchObject({
+      id: crossing.id,
+      draftStatus: "revising",
+      synopsis: "The crew reaches a harbor that exists on only one map.",
+      content: "",
+    });
+    expect(backup.stories[1].revisions[0].content).toBe("");
+
+    const imported = await caller.projects.importBackup({ backup });
+    const restored = await caller.projects.get({ id: imported.projectId });
+    expect(restored.stories.map(story => story.draftStatus)).toEqual([
+      "revising",
+      "drafting",
+    ]);
+    expect(restored.stories[0].synopsis).toBe(
+      "The crew reaches a harbor that exists on only one map."
+    );
+    expect(restored.stories[1].previousChapterId).toBe(restored.stories[0].id);
+    expect(
+      (await caller.stories.getById({ id: restored.stories[0].id }))?.content
+    ).toBe("");
+
+    const owner = await db.getLocalUser();
+    const otherCaller = await createCaller({
+      ...owner,
+      id: 997,
+      openId: "board-intruder",
+      name: "Board Intruder",
+      role: "user",
+    });
+    await expect(
+      otherCaller.projects.updateChapterPlanning({
+        projectId: project.id,
+        storyId: crossing.id,
+        draftStatus: "complete",
+        synopsis: "Overwrite someone else's plan",
+      })
+    ).rejects.toThrow("Project not found");
+  });
+
   it("rejects prompts below the minimum before generation", async () => {
     const caller = await createCaller();
     await expect(

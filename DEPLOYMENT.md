@@ -57,9 +57,11 @@ pnpm start
 
 Database TLS, credentials, least-privilege grants, backup/restore drills, and schema rollback are operator responsibilities. The local file and MySQL adapters should not point at the same logical archive and do not synchronize.
 
-Release 1.1 adds migrations `0004_projects_canon_workspace.sql` and `0005_manuscript_mediumtext.sql`. Apply both before starting 1.1 against an existing MySQL database. The default local-file adapter upgrades version-1 archives to version 2 on first load; make an external backup of the data file before upgrading if rollback is important.
+Release 1.1 adds migrations `0004_projects_canon_workspace.sql` and `0005_manuscript_mediumtext.sql`. Apply both before starting 1.1 against an existing MySQL database.
 
 Release 1.2 adds project-backup import without a schema migration. Import requests remain loopback-only; only the exact import procedure receives an 8 MB JSON body ceiling, while other API procedures retain 1 MB. The UI accepts at most 7 MB backup files before client and server validation. Local imports use one atomic archive write; MySQL imports use one transaction. A failed import should not create a partial project.
+
+Release 1.3 adds migration `0006_cynical_squirrel_girl.sql` for chapter synopsis and draft-status fields. Apply it before starting 1.3 against an existing MySQL database. The default local-file adapter upgrades version-1 or version-2 archives to version 3 on first load. Back up either storage profile before upgrading when rollback matters.
 
 ## Health and shutdown
 

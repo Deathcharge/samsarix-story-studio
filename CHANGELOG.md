@@ -2,6 +2,14 @@
 
 All notable changes to Samsarix Story Studio are documented here.
 
+## 1.3.0 — 2026-08-01
+
+- Added a manuscript board for creating genuinely empty chapter plans with working titles, synopsis notes, and planned/drafting/revising/complete states.
+- Added drag-to-reorder plus keyboard- and touch-accessible move controls; each saved order atomically rewrites chapter numbers, series identity, and previous-chapter continuity links.
+- Allowed blank manuscripts and revisions so writers can outline before drafting; the first substantive edit automatically advances a planned chapter to drafting.
+- Preserved chapter plans, statuses, empty manuscripts, order, and revision history through project backup export/import.
+- Added the version-3 local archive migration and MySQL migration `0006_cynical_squirrel_girl.sql` for planning fields.
+
 ## 1.2.0 — 2026-08-01
 
 - Added schema-validated project backup import with an explicit local preview and a 7 MB file limit.
