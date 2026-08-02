@@ -167,8 +167,12 @@ export async function callLLM(
         `${provider} rate limit or quota was reached. Try again later.`
       );
     }
-    if (error instanceof Error && error.message.includes("timed out after")) {
-      throw new Error(error.message);
+    if (
+      error instanceof Error &&
+      (error.name.includes("Timeout") ||
+        /\b(?:timed out|timeout)\b/i.test(error.message))
+    ) {
+      throw new Error(`${provider} request timed out. Try again.`);
     }
     throw new Error(
       `${provider} request failed. Check provider status, connectivity, and model configuration.`

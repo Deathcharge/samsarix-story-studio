@@ -43,15 +43,17 @@ async function pause(signal?: AbortSignal) {
     ? Math.min(Math.max(Math.floor(configured), 0), 5_000)
     : 180;
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, delay);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-      },
-      { once: true }
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const finish = () => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    const timer = setTimeout(finish, delay);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 

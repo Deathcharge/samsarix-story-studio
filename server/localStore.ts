@@ -212,6 +212,7 @@ function interruptOrphanedGenerationJobs(state: LocalState) {
       continue;
     }
     job.status = "interrupted";
+    job.stage = "interrupted";
     job.stageLabel = "Generation stopped when the local server restarted";
     job.errorMessage = "The local server restarted before this draft finished.";
     job.completedAt = now;
@@ -408,7 +409,12 @@ export async function updateGenerationJob(
       entry => entry.id === id && entry.userId === userId
     );
     if (!job) return undefined;
-    Object.assign(job, data, { updatedAt: data.updatedAt ?? new Date() });
+    const definedData = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined)
+    );
+    Object.assign(job, definedData, {
+      updatedAt: data.updatedAt ?? new Date(),
+    });
     pruneGenerationJobs(state, userId);
     return clone(job);
   });
@@ -809,7 +815,7 @@ export async function createStory(story: InsertStory) {
       );
       if (project) project.updatedAt = now;
     }
-    return { insertId: id };
+    return clone(record);
   });
 }
 

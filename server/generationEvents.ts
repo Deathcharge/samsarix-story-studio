@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { isTerminalGenerationStatus } from "../shared/generationLifecycle";
-import * as db from "./db";
+import { createContext } from "./_core/context";
 import {
   getGenerationJob,
   subscribeToGeneration,
@@ -22,7 +22,12 @@ export function registerGenerationEventRoutes(app: Express) {
           res.status(400).json({ error: "Invalid generation id" });
           return;
         }
-        const user = await db.getLocalUser();
+        const context = await createContext({ req, res });
+        if (!context.user) {
+          res.status(401).json({ error: "Authentication required" });
+          return;
+        }
+        const user = context.user;
         const initial = await getGenerationJob(jobId, user.id);
         if (!initial) {
           res.status(404).json({ error: "Generation not found" });
@@ -39,19 +44,21 @@ export function registerGenerationEventRoutes(app: Express) {
         res.flushHeaders();
 
         let closed = false;
+        let heartbeat: NodeJS.Timeout | undefined;
+        let unsubscribe: () => void = () => undefined;
         const close = () => {
           if (closed) return;
           closed = true;
-          clearInterval(heartbeat);
+          if (heartbeat) clearInterval(heartbeat);
           unsubscribe();
           res.end();
         };
-        const unsubscribe = subscribeToGeneration(jobId, job => {
+        unsubscribe = subscribeToGeneration(jobId, job => {
           if (closed) return;
           sendGenerationEvent(res, job);
           if (isTerminalGenerationStatus(job.status)) close();
         });
-        const heartbeat = setInterval(() => {
+        heartbeat = setInterval(() => {
           if (!closed) res.write(": keep-alive\n\n");
         }, 15_000);
         heartbeat.unref();

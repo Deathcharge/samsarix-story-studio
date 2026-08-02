@@ -179,6 +179,7 @@ describe("local archive migration", () => {
     expect(recovered.generationJobs[0]).toMatchObject({
       id: "gen_orphaned",
       status: "interrupted",
+      stage: "interrupted",
       errorMessage: "The local server restarted before this draft finished.",
     });
     expect(recovered.generationJobs[0].completedAt).toBeTruthy();

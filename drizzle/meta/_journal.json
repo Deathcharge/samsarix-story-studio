@@ -57,6 +57,13 @@
       "when": 1785643173946,
       "tag": "0007_woozy_quasimodo",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1785647642841,
+      "tag": "0008_acoustic_emma_frost",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,10 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import {
+  TERMINAL_GENERATION_STATUSES,
+  type GenerationStatus,
+} from "@shared/generationLifecycle";
 
 const EXAMPLE_PROMPTS = [
   "A hacker discovers their memories are corporate property and must steal them back",
@@ -29,25 +33,15 @@ const EXAMPLE_PROMPTS = [
 type GenerationJob = {
   id: string;
   ritualId: string | null;
-  status:
-    | "queued"
-    | "running"
-    | "cancelling"
-    | "succeeded"
-    | "failed"
-    | "cancelled"
-    | "interrupted";
+  status: GenerationStatus;
   stageLabel: string;
   progress: number;
   errorMessage: string | null;
 };
 
-const TERMINAL_STATUSES = new Set<GenerationJob["status"]>([
-  "succeeded",
-  "failed",
-  "cancelled",
-  "interrupted",
-]);
+const TERMINAL_STATUSES = new Set<GenerationStatus>(
+  TERMINAL_GENERATION_STATUSES
+);
 
 function getContinuationParameters() {
   if (typeof window === "undefined") return new URLSearchParams();
@@ -133,9 +127,18 @@ export default function Generate() {
     setGenerationJob(activeGenerationQuery.data);
   }, [activeGenerationQuery.data, generationJob]);
 
+  const generationJobId = generationJob?.id;
+  const generationJobStatus = generationJob?.status;
+  const shouldPollGeneration = Boolean(
+    !eventStreamAvailable &&
+      generationJobId &&
+      generationJobStatus &&
+      !TERMINAL_STATUSES.has(generationJobStatus)
+  );
+
   useEffect(() => {
-    const jobId = generationJob?.id;
-    if (!jobId || TERMINAL_STATUSES.has(generationJob.status)) return;
+    const jobId = generationJobId;
+    if (!jobId) return;
     const source = new EventSource(
       `/api/generation/${encodeURIComponent(jobId)}/events`
     );
@@ -156,24 +159,18 @@ export default function Generate() {
       source.close();
     };
     return () => source.close();
-  }, [generationJob?.id, generationJob?.status]);
+  }, [generationJobId]);
 
   useEffect(() => {
-    if (
-      eventStreamAvailable ||
-      !generationJob ||
-      TERMINAL_STATUSES.has(generationJob.status)
-    ) {
-      return;
-    }
+    if (!shouldPollGeneration || !generationJobId) return;
     const interval = window.setInterval(async () => {
       const response = await refetchGenerationStatus();
-      if (response.data?.id === generationJob.id) {
+      if (response.data?.id === generationJobId) {
         setGenerationJob(response.data);
       }
     }, 3_000);
     return () => window.clearInterval(interval);
-  }, [eventStreamAvailable, generationJob, refetchGenerationStatus]);
+  }, [generationJobId, refetchGenerationStatus, shouldPollGeneration]);
 
   useEffect(() => {
     if (generationJob?.status === "succeeded" && generationJob.ritualId) {
@@ -493,9 +490,16 @@ export default function Generate() {
                 role="alert"
                 className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm"
               >
-                <strong>Draft not created</strong>
+                <strong>
+                  {generateMutation.error
+                    ? "Draft not created"
+                    : "Cancellation failed"}
+                </strong>
                 <p className="mt-1 text-muted-foreground">
                   {(generateMutation.error || cancelMutation.error)?.message}
+                  {cancelMutation.error
+                    ? " The generation may still be running."
+                    : null}
                 </p>
               </div>
             )}

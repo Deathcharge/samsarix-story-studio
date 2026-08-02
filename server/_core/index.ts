@@ -71,7 +71,17 @@ export async function startServer(): Promise<Server> {
     res.json({ ok: true, mode: ENV.authMode });
   });
 
-  await db.recoverInterruptedGenerationJobs();
+  try {
+    await db.recoverInterruptedGenerationJobs();
+  } catch (error) {
+    const storageTarget =
+      db.getLocalDataPath() ?? "the configured MySQL database";
+    console.error(
+      `Could not reconcile interrupted generation jobs in ${storageTarget}; startup aborted to preserve lifecycle integrity.`,
+      error
+    );
+    throw error;
+  }
   registerGenerationEventRoutes(app);
 
   const standardJsonParser = express.json({ limit: "1mb" });

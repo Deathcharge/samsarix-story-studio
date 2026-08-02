@@ -391,6 +391,12 @@ export const appRouter = router({
           });
         }
         try {
+          if (await db.getActiveGenerationJob(ctx.user.id)) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: "A story is already being generated for this user.",
+            });
+          }
           return await generateAndPersistStory(input, ctx.user.id);
         } finally {
           releaseGeneration(ctx.user.id);

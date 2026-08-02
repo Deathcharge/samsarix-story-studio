@@ -1,4 +1,5 @@
 import {
+  index,
   int,
   mediumtext,
   mysqlEnum,
@@ -155,25 +156,35 @@ export type InsertStoryRevision = typeof storyRevisions.$inferInsert;
  * Content-free lifecycle metadata for an asynchronous generation. Prompts and
  * draft text deliberately remain outside this table.
  */
-export const generationJobs = mysqlTable("generationJobs", {
-  id: varchar("id", { length: 64 }).primaryKey(),
-  userId: int("userId")
-    .notNull()
-    .references(() => users.id),
-  projectId: int("projectId").references(() => projects.id),
-  storyId: int("storyId").references(() => stories.id),
-  ritualId: varchar("ritualId", { length: 64 }),
-  mode: mysqlEnum("mode", ["demo", "provider"]).notNull(),
-  status: mysqlEnum("status", GENERATION_STATUSES).notNull(),
-  stage: mysqlEnum("stage", GENERATION_STAGES).notNull(),
-  stageLabel: varchar("stageLabel", { length: 255 }).notNull(),
-  progress: int("progress").notNull().default(0),
-  cancelRequested: int("cancelRequested").notNull().default(0),
-  errorMessage: varchar("errorMessage", { length: 512 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  completedAt: timestamp("completedAt"),
-});
+export const generationJobs = mysqlTable(
+  "generationJobs",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id),
+    projectId: int("projectId").references(() => projects.id),
+    storyId: int("storyId").references(() => stories.id),
+    ritualId: varchar("ritualId", { length: 64 }),
+    mode: mysqlEnum("mode", ["demo", "provider"]).notNull(),
+    status: mysqlEnum("status", GENERATION_STATUSES).notNull(),
+    stage: mysqlEnum("stage", GENERATION_STAGES).notNull(),
+    stageLabel: varchar("stageLabel", { length: 255 }).notNull(),
+    progress: int("progress").notNull().default(0),
+    cancelRequested: int("cancelRequested").notNull().default(0),
+    errorMessage: varchar("errorMessage", { length: 512 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  table => [
+    index("generationJobs_user_status_created_idx").on(
+      table.userId,
+      table.status,
+      table.createdAt
+    ),
+  ]
+);
 
 export type GenerationJob = typeof generationJobs.$inferSelect;
 export type InsertGenerationJob = typeof generationJobs.$inferInsert;

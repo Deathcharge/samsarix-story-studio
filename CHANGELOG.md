@@ -8,7 +8,7 @@ All notable changes to Samsarix Story Studio are documented here.
 - Added writer cancellation that propagates one abort signal through demo execution and the OpenAI-compatible, Anthropic, and Google provider SDK requests.
 - Added reconnectable active-job state, overlap prevention, terminal success/failure/cancellation/interruption states, and restart recovery that truthfully marks abandoned work interrupted.
 - Persisted only content-free lifecycle metadata with a 100-job-per-writer terminal-history bound; prompts and generated manuscripts remain in their existing story boundary.
-- Added the version-4 local archive migration and MySQL migration `0007_woozy_quasimodo.sql` for generation jobs.
+- Added the version-4 local archive migration plus MySQL migrations `0007_woozy_quasimodo.sql` and `0008_acoustic_emma_frost.sql` for generation jobs, terminal-stage fidelity, and lifecycle lookup indexing.
 
 ## 1.3.0 — 2026-08-01
 

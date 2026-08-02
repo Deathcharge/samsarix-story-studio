@@ -1,3 +1,5 @@
+// Changing either enum requires a matching MySQL migration because Drizzle
+// persists these values as native ENUM columns.
 export const GENERATION_STATUSES = [
   "queued",
   "running",
@@ -22,6 +24,9 @@ export const GENERATION_STAGES = [
   "review",
   "saving",
   "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
 ] as const;
 
 export type GenerationStage = (typeof GENERATION_STAGES)[number];
@@ -51,4 +56,7 @@ export const GENERATION_STAGE_LABELS: Record<GenerationStage, string> = {
   review: "Running advisory review",
   saving: "Saving the draft",
   completed: "Draft saved",
+  failed: "Generation failed",
+  cancelled: "Generation cancelled",
+  interrupted: "Generation interrupted",
 };

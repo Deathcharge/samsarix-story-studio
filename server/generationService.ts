@@ -80,7 +80,7 @@ export async function generateAndPersistStory(
   callbacks.signal?.throwIfAborted();
   await callbacks.onStage?.("saving", 96);
   callbacks.signal?.throwIfAborted();
-  await db.createStory({
+  const story = await db.createStory({
     userId,
     projectId,
     title: result.title,
@@ -103,13 +103,18 @@ export async function generateAndPersistStory(
   });
 
   if (previousProjectChapter && !previousProjectChapter.seriesId) {
-    await db.updateStory(previousProjectChapter.id, userId, {
-      seriesId,
-      chapterNumber: previousProjectChapter.chapterNumber ?? 1,
-    });
+    try {
+      await db.updateStory(previousProjectChapter.id, userId, {
+        seriesId,
+        chapterNumber: previousProjectChapter.chapterNumber ?? 1,
+      });
+    } catch (error) {
+      console.warn(
+        "Draft saved, but the prior chapter series metadata could not be updated",
+        error
+      );
+    }
   }
-  const story = await db.getStoryByRitualId(result.ritualId, userId);
-  if (!story) throw new Error("Generated story was not available after saving");
 
   return {
     ritualId: result.ritualId,

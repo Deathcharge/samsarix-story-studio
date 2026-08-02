@@ -49,7 +49,6 @@ async function updateStage(
   progress: number
 ) {
   const job = await db.updateGenerationJob(jobId, userId, {
-    status: "running",
     stage,
     stageLabel: GENERATION_STAGE_LABELS[stage],
     progress,
@@ -64,35 +63,64 @@ async function executeGeneration(
   controller: AbortController
 ) {
   try {
-    await updateStage(jobId, userId, "preparing", 3);
-    const result = await generateAndPersistStory(input, userId, {
-      signal: controller.signal,
-      onStage: (stage, progress) => updateStage(jobId, userId, stage, progress),
-    });
-    const completedAt = new Date();
-    const job = await db.updateGenerationJob(jobId, userId, {
-      status: "succeeded",
-      stage: "completed",
-      stageLabel: GENERATION_STAGE_LABELS.completed,
-      progress: 100,
-      storyId: result.storyId,
-      ritualId: result.ritualId,
-      projectId: result.projectId,
-      completedAt,
-      errorMessage: null,
-    });
-    if (job) publish(job);
-  } catch (error) {
-    const cancelled = controller.signal.aborted;
-    const completedAt = new Date();
-    const job = await db.updateGenerationJob(jobId, userId, {
-      status: cancelled ? "cancelled" : "failed",
-      stageLabel: cancelled ? "Generation cancelled" : "Generation failed",
-      cancelRequested: cancelled ? 1 : 0,
-      errorMessage: cancelled ? null : safeErrorMessage(error),
-      completedAt,
-    });
-    if (job) publish(job);
+    let result: Awaited<ReturnType<typeof generateAndPersistStory>>;
+    try {
+      controller.signal.throwIfAborted();
+      const running = await db.updateGenerationJob(jobId, userId, {
+        status: "running",
+        stage: "preparing",
+        stageLabel: GENERATION_STAGE_LABELS.preparing,
+        progress: 3,
+      });
+      if (running) publish(running);
+      controller.signal.throwIfAborted();
+      result = await generateAndPersistStory(input, userId, {
+        signal: controller.signal,
+        onStage: (stage, progress) =>
+          updateStage(jobId, userId, stage, progress),
+      });
+    } catch (error) {
+      const cancelled = controller.signal.aborted;
+      try {
+        const job = await db.updateGenerationJob(jobId, userId, {
+          status: cancelled ? "cancelled" : "failed",
+          stage: cancelled ? "cancelled" : "failed",
+          stageLabel: cancelled
+            ? GENERATION_STAGE_LABELS.cancelled
+            : GENERATION_STAGE_LABELS.failed,
+          cancelRequested: cancelled ? 1 : 0,
+          errorMessage: cancelled ? null : safeErrorMessage(error),
+          completedAt: new Date(),
+        });
+        if (job) publish(job);
+      } catch (metadataError) {
+        console.error(
+          "Generation ended, but its terminal lifecycle metadata could not be saved",
+          metadataError
+        );
+      }
+      return;
+    }
+
+    try {
+      const job = await db.updateGenerationJob(jobId, userId, {
+        status: "succeeded",
+        stage: "completed",
+        stageLabel: GENERATION_STAGE_LABELS.completed,
+        progress: 100,
+        storyId: result.storyId,
+        ritualId: result.ritualId,
+        projectId: result.projectId,
+        completedAt: new Date(),
+        errorMessage: null,
+      });
+      if (job) publish(job);
+    } catch (metadataError) {
+      console.error(
+        "Draft saved, but its successful lifecycle metadata could not be updated",
+        metadataError
+      );
+    }
   } finally {
     controllers.delete(jobId);
     releaseGeneration(userId);
@@ -116,7 +144,6 @@ export async function startGeneration(input: GenerationInput, userId: number) {
     }
     const id = `gen_${randomUUID()}`;
     const controller = new AbortController();
-    controllers.set(id, controller);
     const job = await db.createGenerationJob({
       id,
       userId,
@@ -127,6 +154,7 @@ export async function startGeneration(input: GenerationInput, userId: number) {
       stageLabel: GENERATION_STAGE_LABELS.queued,
       progress: 0,
     });
+    controllers.set(id, controller);
     queueMicrotask(() => void executeGeneration(id, input, userId, controller));
     return presentGenerationJob(job);
   } catch (error) {
@@ -156,9 +184,10 @@ export async function cancelGeneration(jobId: string, userId: number) {
   const controller = controllers.get(jobId);
   const job = await db.updateGenerationJob(jobId, userId, {
     status: controller ? "cancelling" : "interrupted",
+    stage: controller ? current.stage : "interrupted",
     stageLabel: controller
       ? "Cancelling the active generation request"
-      : "Generation process is no longer available",
+      : GENERATION_STAGE_LABELS.interrupted,
     cancelRequested: 1,
     completedAt: controller ? null : new Date(),
     errorMessage: controller

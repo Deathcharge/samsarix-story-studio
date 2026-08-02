@@ -96,6 +96,7 @@ export async function recoverInterruptedGenerationJobs() {
     .update(generationJobs)
     .set({
       status: "interrupted",
+      stage: "interrupted",
       stageLabel: "Generation stopped when the local server restarted",
       errorMessage: "The local server restarted before this draft finished.",
       completedAt: now,
@@ -182,8 +183,7 @@ export async function updateGenerationJob(
             ])
           )
         )
-        .orderBy(desc(generationJobs.createdAt))
-        .limit(101);
+        .orderBy(desc(generationJobs.createdAt));
       if (terminal.length > 100) {
         await connection.delete(generationJobs).where(
           inArray(
@@ -627,15 +627,31 @@ export async function deleteCanonEntry(
 
 export async function createStory(story: InsertStory) {
   if (getStorageMode() === "local-file") return localStore.createStory(story);
+  if (story.userId == null) throw new Error("Story ownership is required");
+  const userId = story.userId;
   const connection = await requireDb();
-  if (!story.projectId) return connection.insert(stories).values(story);
   return connection.transaction(async transaction => {
     const result = await transaction.insert(stories).values(story);
-    await transaction
-      .update(projects)
-      .set({ updatedAt: new Date() })
-      .where(eq(projects.id, story.projectId!));
-    return result;
+    if (story.projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(eq(projects.id, story.projectId), eq(projects.userId, userId))
+        );
+    }
+    const created = await transaction
+      .select()
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, Number(result[0].insertId)),
+          eq(stories.userId, userId)
+        )
+      )
+      .limit(1);
+    if (!created[0]) throw new Error("Story was not available after creation");
+    return created[0];
   });
 }
 

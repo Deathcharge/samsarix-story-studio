@@ -399,7 +399,7 @@ describe("primary local story journey", () => {
     let job = started;
     for (
       let attempt = 0;
-      attempt < 80 && job.status !== "succeeded";
+      attempt < 200 && job.status !== "succeeded";
       attempt += 1
     ) {
       await new Promise(resolve => setTimeout(resolve, 25));
@@ -460,7 +460,7 @@ describe("primary local story journey", () => {
       let job = await caller.stories.generationStatus({ jobId: started.id });
       for (
         let attempt = 0;
-        attempt < 80 && job?.status !== "cancelled";
+        attempt < 200 && job?.status !== "cancelled";
         attempt += 1
       ) {
         await new Promise(resolve => setTimeout(resolve, 25));

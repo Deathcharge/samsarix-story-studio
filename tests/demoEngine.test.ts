@@ -40,4 +40,40 @@ describe("local no-key tools", () => {
 
     expect(result.storyText).not.toMatch(/(?:Systems|Humanics)'s/);
   });
+
+  it("reports deterministic stages in order", async () => {
+    const originalDelay = process.env.DEMO_STAGE_DELAY_MS;
+    process.env.DEMO_STAGE_DELAY_MS = "0";
+    const stages: string[] = [];
+    try {
+      await executeDemoRitual(
+        "A signal keeper discovers the lighthouse is warning ships away from tomorrow.",
+        undefined,
+        { onStage: stage => stages.push(stage) }
+      );
+    } finally {
+      if (originalDelay === undefined) delete process.env.DEMO_STAGE_DELAY_MS;
+      else process.env.DEMO_STAGE_DELAY_MS = originalDelay;
+    }
+
+    expect(stages).toEqual(["preparing", "synthesis", "review"]);
+  });
+
+  it("stops promptly when its signal is aborted", async () => {
+    const originalDelay = process.env.DEMO_STAGE_DELAY_MS;
+    process.env.DEMO_STAGE_DELAY_MS = "1000";
+    const controller = new AbortController();
+    try {
+      const pending = executeDemoRitual(
+        "A clockmaker finds a minute that belongs to someone who has not been born.",
+        undefined,
+        { signal: controller.signal }
+      );
+      controller.abort(new DOMException("Cancelled", "AbortError"));
+      await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      if (originalDelay === undefined) delete process.env.DEMO_STAGE_DELAY_MS;
+      else process.env.DEMO_STAGE_DELAY_MS = originalDelay;
+    }
+  });
 });
