@@ -20,8 +20,6 @@ export type PlannedChapterCompletion = Pick<
 
 export function isDraftablePlannedChapter(story: Story) {
   return (
-    story.projectId !== null &&
-    story.wordCount === 0 &&
-    story.content.trim().length === 0
+    story.projectId !== null && story.wordCount === 0 && story.content === ""
   );
 }

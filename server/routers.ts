@@ -69,6 +69,7 @@ function omitUserId<T extends { userId: unknown }>(
 function presentStory(story: Story) {
   return {
     ...story,
+    canDraftWithStudio: isDraftablePlannedChapter(story),
     qualityScore: Number(story.qualityScore) / 100,
     ethicalApproval: Number(story.ethicalApproval) === 1,
     ucfHarmony: Number(story.ucfHarmony) / 10_000,
@@ -97,6 +98,7 @@ function presentProjectStory(story: Story) {
     previousChapterId: story.previousChapterId,
     draftStatus: story.draftStatus,
     synopsis: story.synopsis,
+    canDraftWithStudio: isDraftablePlannedChapter(story),
   };
 }
 
@@ -535,6 +537,12 @@ export const appRouter = router({
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Project not found",
+          });
+        }
+        if (story.previousChapterId && !previousStory) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Previous chapter not found",
           });
         }
         const prompt = previousStory

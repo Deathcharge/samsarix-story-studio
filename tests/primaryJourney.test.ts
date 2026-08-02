@@ -487,6 +487,41 @@ describe("primary local story journey", () => {
       chapterNumber: 2,
       draftStatus: "drafting",
     });
+
+    const whitespace = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "Whitespace Legacy",
+      synopsis: "A compatibility case for an older manually cleared plan.",
+    });
+    await caller.stories.update({
+      id: whitespace.id,
+      title: whitespace.title,
+      content: "   ",
+    });
+    expect(
+      (await caller.projects.get({ id: project.id })).stories.find(
+        story => story.id === whitespace.id
+      )
+    ).toMatchObject({ canDraftWithStudio: false, wordCount: 0 });
+    expect(await caller.stories.getById({ id: whitespace.id })).toMatchObject({
+      canDraftWithStudio: false,
+      content: "   ",
+    });
+    await expect(
+      caller.stories.preparePlannedChapter({ targetStoryId: whitespace.id })
+    ).rejects.toThrow("already has a draft");
+
+    const dangling = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "The Missing Predecessor",
+      synopsis: "The chapter should not prepare against a broken link.",
+    });
+    await db.updateStory(dangling.id, owner.id, {
+      previousChapterId: 999_999,
+    });
+    await expect(
+      caller.stories.preparePlannedChapter({ targetStoryId: dangling.id })
+    ).rejects.toThrow("Previous chapter not found");
   });
 
   it("rejects prompts below the minimum before generation", async () => {

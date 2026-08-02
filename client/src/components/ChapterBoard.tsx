@@ -33,6 +33,7 @@ type Chapter = {
   chapterNumber: number | null;
   draftStatus: ChapterStatus;
   synopsis: string | null;
+  canDraftWithStudio: boolean;
 };
 
 function PlanningEditor({
@@ -339,7 +340,7 @@ export function ChapterBoard({
                     {story.wordCount.toLocaleString()} words · edited{" "}
                     {new Date(story.updatedAt).toLocaleDateString()}
                   </p>
-                  {story.wordCount === 0 ? (
+                  {story.canDraftWithStudio ? (
                     <Button asChild size="sm" className="mt-4">
                       <Link href={`/generate?targetStoryId=${story.id}`}>
                         <Sparkles className="mr-2 h-4 w-4" />

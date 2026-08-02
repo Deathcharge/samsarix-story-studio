@@ -308,7 +308,7 @@ export default function Story() {
                   <Zap className="mr-2 h-4 w-4" />
                   Continue story
                 </Button>
-              ) : story.projectId ? (
+              ) : story.canDraftWithStudio ? (
                 <Button
                   onClick={() =>
                     setLocation(`/generate?targetStoryId=${story.id}`)
