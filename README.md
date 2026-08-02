@@ -1,6 +1,6 @@
 # Samsarix Story Studio
 
-Samsarix Story Studio is a local-first manuscript workspace from Samsarix LLC for writers who want explicit control over both their story canon and a bounded, multi-stage AI drafting process. Build a project, record characters and world rules, preview the exact canon entries selected for a chapter, generate or edit the manuscript, recover prior revisions, and export portable files.
+Samsarix Story Studio is a local-first manuscript workspace from Samsarix LLC for writers who want explicit control over both their story canon and a bounded, multi-stage AI drafting process. Build a project, record characters and world rules, preview the exact canon entries selected for a chapter, generate or edit the manuscript, recover prior revisions, and export or restore portable files.
 
 The default experience is a deterministic, no-key demo. It does not call an AI provider and is labeled as demo output throughout the interface. Add one supported provider key to use the provider-backed workflow; missing preferred providers fall back to the provider you configured.
 
@@ -33,6 +33,7 @@ Set `SAMSARIX_DATA_FILE` to choose another location. Existing default data at `.
 4. Choose a preset or enable up to seven agent roles, then create a clearly labeled demo or provider-backed draft.
 5. Edit the chapter directly. Every save keeps the prior title and manuscript as a recoverable revision; the newest 50 snapshots per chapter are retained.
 6. Continue the manuscript, reopen any draft from the archive, export combined Markdown, or download a versioned project JSON backup.
+7. Restore a backup from the Projects page. The file is validated first and imported as a separate project, so existing work is never overwritten.
 
 Standalone drafts remain supported when a project would be unnecessary.
 
@@ -103,10 +104,11 @@ The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint expo
 - In provider mode, prompts, intermediate material, and drafts are sent to the configured provider. Review that provider’s retention and training terms.
 - Generated text can be incorrect, biased, derivative, or unwanted. “Quality,” “ethical review,” and UCF metadata are advisory heuristics only.
 - Prompt validation, story ownership checks, loopback enforcement, body limits, timeouts, retry limits, and call ceilings reduce risk; they do not make hosted multi-user operation production-ready.
+- Project imports accept only the versioned Samsarix backup shape, reject inconsistent references, and cap selected files at 7 MB. Imported ownership and database IDs are always replaced.
 
 ## Scope and known limitations
 
-The release intentionally does not include streaming/cancellation, project-import restore, chapter reordering, scene planning, public sharing, PDF/EPUB export, billing, or collaboration. Archive search is client-side and suited to a personal library. JSON backup is export-only in this release; restore requires a future schema-validating import flow. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
+The release intentionally does not include streaming/cancellation, chapter reordering, scene planning, public sharing, PDF/EPUB export, billing, or collaboration. Archive search is client-side and suited to a personal library. Backup restore always creates a new project; merging into or replacing an existing project is intentionally unsupported. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
 
 Legacy component examples remain outside the active TypeScript and runtime graph so historical UI source is preserved without making it part of the release contract. Incomplete QoL helpers and private-platform runtime adapters were removed. Future cleanup is tracked in [the productization record](docs/PRODUCTIZATION.md).
 

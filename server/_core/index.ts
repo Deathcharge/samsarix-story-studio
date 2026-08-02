@@ -61,8 +61,8 @@ export async function startServer(): Promise<Server> {
   const server = createServer(app);
   app.disable("x-powered-by");
   app.use(enforceRequestBoundary);
-  app.use(express.json({ limit: "1mb" }));
-  app.use(express.urlencoded({ limit: "1mb", extended: true }));
+  app.use(express.json({ limit: "8mb" }));
+  app.use(express.urlencoded({ limit: "8mb", extended: true }));
 
   app.get("/healthz", (_req, res) => {
     res.json({ ok: true, mode: ENV.authMode });

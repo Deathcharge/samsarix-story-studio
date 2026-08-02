@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { Story } from "../drizzle/schema";
+import { projectBackupSchema } from "../shared/projectBackup";
 import { getAllAgentConfigs, getAllPresetModes } from "./agentConfig";
 import { parseActivationKeys, selectCanonContext } from "./canonContext";
 import * as db from "./db";
@@ -146,6 +147,7 @@ export const appRouter = router({
             updatedAt: story.updatedAt,
             seriesId: story.seriesId,
             chapterNumber: story.chapterNumber,
+            previousChapterId: story.previousChapterId,
           })),
           canon: canon.map(entry => ({
             ...entry,
@@ -274,10 +276,17 @@ export const appRouter = router({
           })),
           stories: stories.map((story, index) => ({
             ...presentStory(story),
+            projectId: project.id,
             revisions: revisions[index],
           })),
         };
       }),
+
+    importBackup: protectedProcedure
+      .input(z.object({ backup: projectBackupSchema }))
+      .mutation(({ input, ctx }) =>
+        db.importProjectBackup(input.backup, ctx.user.id)
+      ),
   }),
 
   stories: router({

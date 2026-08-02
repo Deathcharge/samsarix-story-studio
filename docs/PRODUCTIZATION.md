@@ -118,7 +118,8 @@ The duplicate resolver processes started by those four independent baseline comm
 
 - [x] Project-level story bible/canon with explicit, bounded context selection.
 - [x] Draft editing with capped, recoverable version history.
-- Project import/restore, scene-level planning, and explicit chapter ordering.
+- [x] Project import/restore with validation and conflict-safe identity remapping.
+- Scene-level planning and explicit chapter ordering.
 - Streaming real stage progress and user cancellation.
 - Tags, collections, and favorites after their incomplete backend is designed; basic archive search is included now.
 - Local-model adapters such as Ollama or an OpenAI-compatible base URL.
@@ -169,30 +170,31 @@ The duplicate resolver processes started by those four independent baseline comm
 - Kept routine project responses bounded to chapter summaries; full manuscript and revision bodies are returned only by story detail or an explicit project export.
 - Performed production-browser QA for project creation, canon creation, context preview, demo generation, chapter editing, revision history, continuation privacy, and 390-pixel responsive layout; QA findings were fixed before release verification.
 - Hardened the complete development dependency graph for 1.1.1, including Vite, Vitest, esbuild, tar, PostCSS, Rollup, Picomatch, and Babel; pnpm 11 workspace overrides now make those resolutions reproducible in clean installs and CI.
+- Added the 1.2 backup recovery path: client and server schema validation, copy-only semantics, atomic local persistence, transactional MySQL persistence, ownership/identity replacement, relationship remapping, bounded payloads, and exact manuscript whitespace preservation.
 
 ## Final verification
 
 Environment: Windows, Node.js `v24.12.0`, pnpm `11.9.0`. CI uses the documented Node.js 22 release line.
 
-| Command                          | Final result                                                                                                                                                                                         |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                                                                                                                        |
-| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                                                                                                             |
-| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                         |
-| `pnpm test`                      | Passed; 4 files and 12 behavioral tests, including projects/canon/revisions, context bounds, ownership, continuation, demo fidelity, and version-1 local archive migration.                          |
-| `pnpm build`                     | Passed; 1,769 client modules and the bundled server production artifact were emitted.                                                                                                                |
-| `pnpm audit`                     | Passed; no known vulnerabilities in production or development dependencies.                                                                                                                          |
-| `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                   |
-| Drizzle schema check             | Passed; generated migrations and snapshots match the eight-table schema with no ungenerated changes.                                                                                                 |
-| production browser QA            | Passed on `127.0.0.1`: project/canon creation, context preview, demo generation, editing, revision history, continuation URL/privacy, 390px layout, and final zero-error/zero-warning console check. |
+| Command                          | Final result                                                                                                                                                                                                     |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                                                                                                                                    |
+| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                                                                                                                         |
+| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                                     |
+| `pnpm test`                      | Passed; 5 files and 15 behavioral tests, including backup round trips, reference/cycle rejection, projects/canon/revisions, context bounds, ownership, continuation, demo fidelity, and local archive migration. |
+| `pnpm build`                     | Passed; 1,841 client modules and the bundled server production artifact were emitted.                                                                                                                            |
+| `pnpm audit`                     | Passed; no known vulnerabilities in production or development dependencies.                                                                                                                                      |
+| `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                               |
+| Drizzle schema check             | Passed; generated migrations and snapshots match the eight-table schema with no ungenerated changes.                                                                                                             |
+| production browser QA            | Passed on `127.0.0.1`: real project/canon/draft/edit/export/import round trip, restored history, invalid-file feedback, 390px import layout, and final zero-error/zero-warning console check.                    |
 
-No external provider call, live MySQL migration, deployment, package publication, account creation, or paid operation was performed. MySQL DDL was generated and schema-drift checked, but applying it remains dependent on an operator-supplied database.
+No external provider call, live MySQL operation, deployment, package publication, account creation, or paid operation was performed. MySQL DDL was generated and schema-drift checked with no 1.2 migration needed, but executing the import transaction remains dependent on an operator-supplied database.
 
-The Codex Security workbench could not initialize its local helper and returned no scan ID or artifacts. No formal scanner result is claimed. A manual release-diff review instead covered project/story ownership, context and editor input bounds, export scope, continuation data exposure, local atomic writes and migration behavior, MySQL transaction/retention behavior, and client response size; its locally actionable response-size finding was fixed before the final gate.
+The Codex Security workbench could not initialize its local helper and returned no scan ID or artifacts. No formal scanner result is claimed. Manual release-diff review instead covered project/story ownership, import schema and reference integrity, replacement of exported identity/ownership fields, payload bounds, context and editor input bounds, export scope, continuation data exposure, local atomic writes and migration behavior, MySQL transaction/retention behavior, and client response size; locally actionable findings were fixed before the final gate.
 
 ## Deferred work and rationale
 
-- Project JSON import is deferred until schema validation, conflict handling, and recovery semantics are designed; the current export is still useful as a readable backup and portability artifact.
+- Backup import deliberately creates a separate project. In-place merge or replacement remains deferred because it needs field-level conflict presentation and rollback semantics.
 - Scene planning and chapter reordering are deferred until an explicit ordering model replaces inferred chapter numbers.
 - Multi-user hosted collaboration, billing, and subscriptions would expand operational and privacy scope without evidence.
 - PDF export adds layout and dependency work; Markdown is sufficient for the first release.

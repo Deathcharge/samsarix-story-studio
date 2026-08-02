@@ -2,6 +2,13 @@
 
 All notable changes to Samsarix Story Studio are documented here.
 
+## 1.2.0 — 2026-08-01
+
+- Added schema-validated project backup import with an explicit local preview and a 7 MB file limit.
+- Restored backups only as new projects, atomically remapping project, canon, story, series, revision, and previous-chapter identities without trusting exported ownership fields.
+- Preserved manuscript whitespace, metadata, chapter relationships, and capped revision history while rejecting malformed, cross-project, dangling, duplicate, oversized, or cyclic backup data.
+- Added behavioral round-trip and validation tests for local storage; the MySQL import uses one transaction and the same validated import plan.
+
 ## 1.1.1 — 2026-08-01
 
 - Upgraded Vite and Vitest to patched release lines and pinned vulnerable transitive build dependencies to audited versions.

@@ -16,7 +16,9 @@ import {
   ucfStates,
   users,
 } from "../drizzle/schema";
+import type { ProjectBackup } from "../shared/projectBackup";
 import * as localStore from "./localStore";
+import { prepareProjectImport } from "./projectImport";
 
 let database: ReturnType<typeof drizzle> | null = null;
 
@@ -158,6 +160,76 @@ export async function updateProject(
     .set(data)
     .where(and(eq(projects.id, id), eq(projects.userId, userId)));
   return result[0].affectedRows > 0;
+}
+
+export async function importProjectBackup(
+  backup: ProjectBackup,
+  userId: number
+) {
+  const plan = prepareProjectImport(backup);
+  if (getStorageMode() === "local-file") {
+    return localStore.importProject(plan, userId);
+  }
+
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const projectResult = await transaction
+      .insert(projects)
+      .values({ userId, ...plan.project });
+    const projectId = Number(projectResult[0].insertId);
+
+    if (plan.canon.length > 0) {
+      await transaction
+        .insert(canonEntries)
+        .values(plan.canon.map(entry => ({ projectId, userId, ...entry })));
+    }
+
+    const storyIds = new Map<number, number>();
+    for (const story of plan.stories) {
+      const storyResult = await transaction.insert(stories).values({
+        userId,
+        projectId,
+        previousChapterId: null,
+        ...story.values,
+      });
+      storyIds.set(story.sourceId, Number(storyResult[0].insertId));
+    }
+
+    for (const story of plan.stories) {
+      const storyId = storyIds.get(story.sourceId);
+      if (!storyId) throw new Error("Imported story mapping was lost");
+      if (story.previousSourceId) {
+        const previousChapterId = storyIds.get(story.previousSourceId);
+        if (!previousChapterId) {
+          throw new Error("Imported previous chapter mapping was lost");
+        }
+        await transaction
+          .update(stories)
+          .set({ previousChapterId })
+          .where(
+            and(
+              eq(stories.id, storyId),
+              eq(stories.projectId, projectId),
+              eq(stories.userId, userId)
+            )
+          );
+      }
+      if (story.revisions.length > 0) {
+        await transaction.insert(storyRevisions).values(
+          story.revisions.map(revision => ({
+            storyId,
+            userId,
+            ...revision,
+          }))
+        );
+      }
+    }
+
+    return {
+      projectId,
+      ...plan.summary,
+    };
+  });
 }
 
 export async function createCanonEntry(input: InsertCanonEntry) {

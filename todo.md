@@ -7,7 +7,7 @@ The authoritative audit, acceptance criteria, and release evidence live in [docs
 - Add real stage streaming and user cancellation with a durable generation state model.
 - Add opt-in live-provider contract tests and token/cost telemetry without exposing content or keys.
 - Complete keyboard, assistive-technology, and cross-browser verification.
-- Add project import with schema validation and conflict-safe ID remapping so JSON backups are fully round-trippable.
+- [x] Add project import with schema validation and conflict-safe ID remapping so JSON backups are fully round-trippable.
 - Add scene-level planning and drag-to-reorder after chapter-order persistence is designed.
 
 ## P2: only after evidence
