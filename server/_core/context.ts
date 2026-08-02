@@ -9,7 +9,7 @@ export type TrpcContext = {
 };
 
 export async function createContext(
-  opts: CreateExpressContextOptions
+  opts: Pick<CreateExpressContextOptions, "req" | "res">
 ): Promise<TrpcContext> {
   return {
     req: opts.req,

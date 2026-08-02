@@ -4,8 +4,10 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   agentLogs,
   canonEntries,
+  generationJobs,
   type InsertAgentLog,
   type InsertCanonEntry,
+  type InsertGenerationJob,
   type InsertProject,
   type InsertStory,
   type InsertStoryRevision,
@@ -19,6 +21,7 @@ import {
 } from "../drizzle/schema";
 import type { ProjectBackup } from "../shared/projectBackup";
 import type { ChapterStatus } from "../shared/chapterPlanning";
+import { isTerminalGenerationStatus } from "../shared/generationLifecycle";
 import * as localStore from "./localStore";
 import { prepareProjectImport } from "./projectImport";
 
@@ -78,6 +81,122 @@ export async function getLocalUser() {
   const user = await getUserByOpenId(openId);
   if (!user) throw new Error("Could not initialize the local MySQL user");
   return user;
+}
+
+export async function recoverInterruptedGenerationJobs() {
+  if (getStorageMode() === "local-file") {
+    // Loading the local store performs the recovery atomically.
+    await localStore.getLocalUser();
+    return;
+  }
+  const now = new Date();
+  await (
+    await requireDb()
+  )
+    .update(generationJobs)
+    .set({
+      status: "interrupted",
+      stage: "interrupted",
+      stageLabel: "Generation stopped when the local server restarted",
+      errorMessage: "The local server restarted before this draft finished.",
+      completedAt: now,
+      updatedAt: now,
+    })
+    .where(inArray(generationJobs.status, ["queued", "running", "cancelling"]));
+}
+
+export async function createGenerationJob(input: InsertGenerationJob) {
+  if (getStorageMode() === "local-file") {
+    return localStore.createGenerationJob(input);
+  }
+  const connection = await requireDb();
+  await connection.insert(generationJobs).values(input);
+  const created = await getGenerationJob(input.id, input.userId);
+  if (!created)
+    throw new Error("Generation job was not available after creation");
+  return created;
+}
+
+export async function getGenerationJob(id: string, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getGenerationJob(id, userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(generationJobs)
+    .where(and(eq(generationJobs.id, id), eq(generationJobs.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function getActiveGenerationJob(userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getActiveGenerationJob(userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.userId, userId),
+        inArray(generationJobs.status, ["queued", "running", "cancelling"])
+      )
+    )
+    .orderBy(desc(generationJobs.createdAt))
+    .limit(1);
+  return result[0];
+}
+
+export async function updateGenerationJob(
+  id: string,
+  userId: number,
+  data: Partial<InsertGenerationJob>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateGenerationJob(id, userId, data);
+  }
+  const connection = await requireDb();
+  await connection
+    .update(generationJobs)
+    .set(data)
+    .where(and(eq(generationJobs.id, id), eq(generationJobs.userId, userId)));
+  if (
+    typeof data.status === "string" &&
+    isTerminalGenerationStatus(data.status)
+  ) {
+    try {
+      const terminal = await connection
+        .select({ id: generationJobs.id })
+        .from(generationJobs)
+        .where(
+          and(
+            eq(generationJobs.userId, userId),
+            inArray(generationJobs.status, [
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted",
+            ])
+          )
+        )
+        .orderBy(desc(generationJobs.createdAt));
+      if (terminal.length > 100) {
+        await connection.delete(generationJobs).where(
+          inArray(
+            generationJobs.id,
+            terminal.slice(100).map(job => job.id)
+          )
+        );
+      }
+    } catch (error) {
+      console.warn("Could not prune completed generation metadata", error);
+    }
+  }
+  return getGenerationJob(id, userId);
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -508,15 +627,31 @@ export async function deleteCanonEntry(
 
 export async function createStory(story: InsertStory) {
   if (getStorageMode() === "local-file") return localStore.createStory(story);
+  if (story.userId == null) throw new Error("Story ownership is required");
+  const userId = story.userId;
   const connection = await requireDb();
-  if (!story.projectId) return connection.insert(stories).values(story);
   return connection.transaction(async transaction => {
     const result = await transaction.insert(stories).values(story);
-    await transaction
-      .update(projects)
-      .set({ updatedAt: new Date() })
-      .where(eq(projects.id, story.projectId!));
-    return result;
+    if (story.projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(eq(projects.id, story.projectId), eq(projects.userId, userId))
+        );
+    }
+    const created = await transaction
+      .select()
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, Number(result[0].insertId)),
+          eq(stories.userId, userId)
+        )
+      )
+      .limit(1);
+    if (!created[0]) throw new Error("Story was not available after creation");
+    return created[0];
   });
 }
 

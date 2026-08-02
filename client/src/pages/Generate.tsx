@@ -5,6 +5,7 @@ import {
   Loader2,
   Sparkles,
   Wand2,
+  X,
   Zap,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -17,6 +18,10 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import {
+  TERMINAL_GENERATION_STATUSES,
+  type GenerationStatus,
+} from "@shared/generationLifecycle";
 
 const EXAMPLE_PROMPTS = [
   "A hacker discovers their memories are corporate property and must steal them back",
@@ -25,14 +30,18 @@ const EXAMPLE_PROMPTS = [
   "A memory trader finds a black-market chip containing the last unedited public record",
 ];
 
-const STAGES = [
-  "Structuring the central conflict",
-  "Developing the protagonist's choice",
-  "Building the setting and constraints",
-  "Testing the turning point",
-  "Synthesizing the draft",
-  "Running the advisory review",
-];
+type GenerationJob = {
+  id: string;
+  ritualId: string | null;
+  status: GenerationStatus;
+  stageLabel: string;
+  progress: number;
+  errorMessage: string | null;
+};
+
+const TERMINAL_STATUSES = new Set<GenerationStatus>(
+  TERMINAL_GENERATION_STATUSES
+);
 
 function getContinuationParameters() {
   if (typeof window === "undefined") return new URLSearchParams();
@@ -48,8 +57,10 @@ export default function Generate() {
   const [projectId, setProjectId] = useState<number | null>(initialProjectId);
   const [selectedCanonIds, setSelectedCanonIds] = useState<number[]>([]);
   const [continuationApplied, setContinuationApplied] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [statusMessage, setStatusMessage] = useState("Ready");
+  const [generationJob, setGenerationJob] = useState<GenerationJob | null>(
+    null
+  );
+  const [eventStreamAvailable, setEventStreamAvailable] = useState(true);
   const [enhancedData, setEnhancedData] = useState<{
     detectedGenre: string;
     detectedTone: string;
@@ -65,6 +76,15 @@ export default function Generate() {
   const { data: agents } = trpc.config.agents.useQuery();
   const { data: presets } = trpc.config.presets.useQuery();
   const { data: projects } = trpc.projects.list.useQuery();
+  const activeGenerationQuery = trpc.stories.activeGeneration.useQuery(
+    undefined,
+    { retry: false }
+  );
+  const generationStatusQuery = trpc.stories.generationStatus.useQuery(
+    { jobId: generationJob?.id ?? "" },
+    { enabled: false, retry: false }
+  );
+  const refetchGenerationStatus = generationStatusQuery.refetch;
   const projectQuery = trpc.projects.get.useQuery(
     { id: projectId ?? 0 },
     { enabled: Boolean(projectId), retry: false }
@@ -90,30 +110,73 @@ export default function Generate() {
     },
   });
 
-  const generateMutation = trpc.stories.generate.useMutation({
+  const generateMutation = trpc.stories.startGeneration.useMutation({
     onSuccess: data => {
-      setProgress(100);
-      setStatusMessage("Draft saved");
-      setLocation(`/story/${data.ritualId}`);
+      setGenerationJob(data);
+      setEventStreamAvailable(true);
     },
-    onError: () => {
-      setProgress(0);
-      setStatusMessage("Generation stopped");
+  });
+  const cancelMutation = trpc.stories.cancelGeneration.useMutation({
+    onSuccess: data => {
+      if (data) setGenerationJob(data);
     },
   });
 
   useEffect(() => {
-    if (!generateMutation.isPending) return;
-    let stage = 0;
-    setProgress(8);
-    setStatusMessage(STAGES[stage]);
-    const interval = window.setInterval(() => {
-      stage = Math.min(stage + 1, STAGES.length - 1);
-      setProgress(current => Math.min(current + 14, 92));
-      setStatusMessage(STAGES[stage]);
-    }, 1_800);
+    if (generationJob || !activeGenerationQuery.data) return;
+    setGenerationJob(activeGenerationQuery.data);
+  }, [activeGenerationQuery.data, generationJob]);
+
+  const generationJobId = generationJob?.id;
+  const generationJobStatus = generationJob?.status;
+  const shouldPollGeneration = Boolean(
+    !eventStreamAvailable &&
+      generationJobId &&
+      generationJobStatus &&
+      !TERMINAL_STATUSES.has(generationJobStatus)
+  );
+
+  useEffect(() => {
+    const jobId = generationJobId;
+    if (!jobId) return;
+    const source = new EventSource(
+      `/api/generation/${encodeURIComponent(jobId)}/events`
+    );
+    const handleGeneration = (event: MessageEvent<string>) => {
+      try {
+        const next = JSON.parse(event.data) as GenerationJob;
+        setGenerationJob(next);
+        setEventStreamAvailable(true);
+        if (TERMINAL_STATUSES.has(next.status)) source.close();
+      } catch {
+        setEventStreamAvailable(false);
+        source.close();
+      }
+    };
+    source.addEventListener("generation", handleGeneration);
+    source.onerror = () => {
+      setEventStreamAvailable(false);
+      source.close();
+    };
+    return () => source.close();
+  }, [generationJobId]);
+
+  useEffect(() => {
+    if (!shouldPollGeneration || !generationJobId) return;
+    const interval = window.setInterval(async () => {
+      const response = await refetchGenerationStatus();
+      if (response.data?.id === generationJobId) {
+        setGenerationJob(response.data);
+      }
+    }, 3_000);
     return () => window.clearInterval(interval);
-  }, [generateMutation.isPending]);
+  }, [generationJobId, refetchGenerationStatus, shouldPollGeneration]);
+
+  useEffect(() => {
+    if (generationJob?.status === "succeeded" && generationJob.ritualId) {
+      setLocation(`/story/${generationJob.ritualId}`);
+    }
+  }, [generationJob?.ritualId, generationJob?.status, setLocation]);
 
   useEffect(() => {
     if (!continuationQuery.data || continuationApplied) return;
@@ -123,15 +186,21 @@ export default function Generate() {
   }, [continuationApplied, continuationQuery.data]);
 
   const trimmedPrompt = prompt.trim();
+  const isGenerating = Boolean(
+    generationJob && !TERMINAL_STATUSES.has(generationJob.status)
+  );
   const canGenerate =
     Boolean(status) &&
     trimmedPrompt.length >= 10 &&
+    !isGenerating &&
     !generateMutation.isPending;
   const isDemo = status?.mode !== "provider";
 
   const handleGenerate = () => {
     if (!canGenerate) return;
     generateMutation.reset();
+    cancelMutation.reset();
+    setGenerationJob(null);
     generateMutation.mutate({
       prompt: trimmedPrompt,
       preset: generationConfig.preset as
@@ -289,7 +358,7 @@ export default function Generate() {
                   generateMutation.reset();
                 }}
                 rows={6}
-                disabled={generateMutation.isPending}
+                disabled={isGenerating}
                 className="resize-y text-base leading-relaxed"
                 maxLength={1_000}
                 aria-describedby="prompt-help"
@@ -307,7 +376,7 @@ export default function Generate() {
                   disabled={
                     trimmedPrompt.length < 3 ||
                     enhanceMutation.isPending ||
-                    generateMutation.isPending
+                    isGenerating
                   }
                   className="inline-flex items-center gap-1.5 font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -416,14 +485,21 @@ export default function Generate() {
               />
             )}
 
-            {generateMutation.error && (
+            {(generateMutation.error || cancelMutation.error) && (
               <div
                 role="alert"
                 className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm"
               >
-                <strong>Draft not created</strong>
+                <strong>
+                  {generateMutation.error
+                    ? "Draft not created"
+                    : "Cancellation failed"}
+                </strong>
                 <p className="mt-1 text-muted-foreground">
-                  {generateMutation.error.message}
+                  {(generateMutation.error || cancelMutation.error)?.message}
+                  {cancelMutation.error
+                    ? " The generation may still be running."
+                    : null}
                 </p>
               </div>
             )}
@@ -434,7 +510,7 @@ export default function Generate() {
               size="lg"
               className="w-full text-base"
             >
-              {generateMutation.isPending ? (
+              {isGenerating || generateMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   Creating draft
@@ -460,27 +536,72 @@ export default function Generate() {
             )}
           </Card>
 
-          {generateMutation.isPending && (
+          {isGenerating && generationJob && (
             <Card
               className="space-y-3 border-primary/40 p-6"
               aria-live="polite"
               aria-busy="true"
             >
               <div className="flex items-center justify-between gap-4 text-sm">
-                <span className="font-medium">{statusMessage}</span>
+                <span className="font-medium">{generationJob.stageLabel}</span>
                 <span className="tabular-nums text-muted-foreground">
-                  {progress}%
+                  {generationJob.progress}%
                 </span>
               </div>
-              <Progress value={progress} className="h-2" />
-              <p className="text-xs text-muted-foreground">
-                This indicator shows workflow stages, not live provider token
-                progress.
-              </p>
+              <Progress value={generationJob.progress} className="h-2" />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  {eventStreamAvailable
+                    ? "Stages are reported by the local generation process."
+                    : "Live updates disconnected; checking job status periodically."}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    generationJob.status === "cancelling" ||
+                    cancelMutation.isPending
+                  }
+                  onClick={() =>
+                    cancelMutation.mutate({ jobId: generationJob.id })
+                  }
+                >
+                  {cancelMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <X className="mr-2 h-4 w-4" />
+                  )}
+                  {generationJob.status === "cancelling"
+                    ? "Cancelling"
+                    : "Cancel generation"}
+                </Button>
+              </div>
             </Card>
           )}
 
-          {!generateMutation.isPending && !previousStoryId && (
+          {generationJob &&
+            TERMINAL_STATUSES.has(generationJob.status) &&
+            generationJob.status !== "succeeded" && (
+              <Card
+                className="space-y-2 border-destructive/30 p-6"
+                role="status"
+              >
+                <strong>
+                  {generationJob.status === "cancelled"
+                    ? "Generation cancelled"
+                    : generationJob.status === "interrupted"
+                      ? "Generation interrupted"
+                      : "Draft not created"}
+                </strong>
+                <p className="text-sm text-muted-foreground">
+                  {generationJob.errorMessage ||
+                    "Your prompt is still here. Adjust it or try again when ready."}
+                </p>
+              </Card>
+            )}
+
+          {!isGenerating && !previousStoryId && (
             <section aria-labelledby="prompt-examples" className="space-y-3">
               <h2
                 id="prompt-examples"

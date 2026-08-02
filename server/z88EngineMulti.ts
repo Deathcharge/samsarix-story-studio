@@ -5,6 +5,7 @@
 
 import { executeDemoRitual } from "./demoEngine";
 import { randomUUID } from "node:crypto";
+import type { GenerationStage } from "../shared/generationLifecycle";
 import {
   callLLM,
   getConfiguredProviders,
@@ -57,6 +58,18 @@ export interface RitualOptions {
     provider?: LLMProvider;
     temperature?: number;
   }>;
+  signal?: AbortSignal;
+  onStage?: (stage: GenerationStage, progress: number) => void | Promise<void>;
+}
+
+async function reportStage(
+  options: RitualOptions,
+  stage: GenerationStage,
+  progress: number
+) {
+  options.signal?.throwIfAborted();
+  await options.onStage?.(stage, progress);
+  options.signal?.throwIfAborted();
 }
 
 /**
@@ -67,12 +80,13 @@ export async function executeCreativeRitualMulti(
   options: RitualOptions = {}
 ): Promise<CreativeRitualResult> {
   if (getConfiguredProviders().length === 0) {
-    return executeDemoRitual(prompt, options.context);
+    return executeDemoRitual(prompt, options.context, options);
   }
 
   const ritualId = `ritual_${randomUUID()}`;
 
   try {
+    await reportStage(options, "preparing", 5);
     console.log(`[Z-88 Multi] Starting ritual ${ritualId}`);
     console.log(`[Z-88 Multi] Preset: ${options.preset || "balanced"}`);
 
@@ -99,6 +113,7 @@ export async function executeCreativeRitualMulti(
       throw new Error("Oracle agent is required");
     }
 
+    await reportStage(options, "plot", 15);
     const plotStructure = await invokeAgent(
       oracleSetup.config,
       oracleSetup.provider,
@@ -114,7 +129,8 @@ Provide:
 2. **Act II Confrontation**: Escalate stakes, add complications, include a major twist
 3. **Act III Resolution**: Climax and satisfying conclusion
 
-Focus on dramatic structure, pacing, and character arcs. Be specific about key plot points.`
+Focus on dramatic structure, pacing, and character arcs. Be specific about key plot points.`,
+      options.signal
     );
 
     console.log(`[Z-88 Multi] Oracle complete (${oracleSetup.provider})`);
@@ -124,6 +140,7 @@ Focus on dramatic structure, pacing, and character arcs. Be specific about key p
     let characterDepth = "";
 
     if (luminaSetup) {
+      await reportStage(options, "characters", 28);
       characterDepth = await invokeAgent(
         luminaSetup.config,
         luminaSetup.provider,
@@ -138,7 +155,8 @@ Develop the protagonist's emotional arc and internal conflicts:
 3. **Relationships**: Key dynamics with other characters
 4. **Internal Conflict**: Core psychological struggle
 
-Make the character feel authentic and emotionally resonant.`
+Make the character feel authentic and emotionally resonant.`,
+        options.signal
       );
 
       console.log(`[Z-88 Multi] Lumina complete (${luminaSetup.provider})`);
@@ -149,6 +167,7 @@ Make the character feel authentic and emotionally resonant.`
     let worldDetails = "";
 
     if (geminiSetup) {
+      await reportStage(options, "world", 40);
       worldDetails = await invokeAgent(
         geminiSetup.config,
         geminiSetup.provider,
@@ -163,7 +182,8 @@ Build the cyberpunk world:
 3. **Society**: Social structures, power dynamics, culture
 4. **Economics**: How the world functions
 
-Make the world feel lived-in and believable.`
+Make the world feel lived-in and believable.`,
+        options.signal
       );
 
       console.log(`[Z-88 Multi] Gemini complete (${geminiSetup.provider})`);
@@ -174,6 +194,7 @@ Make the world feel lived-in and believable.`
     let creativeTwists = "";
 
     if (agniSetup) {
+      await reportStage(options, "twists", 52);
       creativeTwists = await invokeAgent(
         agniSetup.config,
         agniSetup.provider,
@@ -188,7 +209,8 @@ Inject 2-3 unexpected creative elements:
 2. A novel combination of ideas or concepts
 3. A bold creative risk that makes the story memorable
 
-Be original and daring.`
+Be original and daring.`,
+        options.signal
       );
 
       console.log(`[Z-88 Multi] Agni complete (${agniSetup.provider})`);
@@ -199,6 +221,7 @@ Be original and daring.`
     let researchNotes = "";
 
     if (researcherSetup) {
+      await reportStage(options, "research", 60);
       researchNotes = await invokeAgent(
         researcherSetup.config,
         researcherSetup.provider,
@@ -215,7 +238,8 @@ Provide:
 3. Scientific plausibility notes
 4. Relevant citations or references
 
-Keep it brief but credible.`
+Keep it brief but credible.`,
+        options.signal
       );
 
       console.log(
@@ -226,6 +250,7 @@ Keep it brief but credible.`
     // Step 7: Synthesis - Generate final story
     const synthesisProvider = oracleSetup.provider; // Use Oracle's provider for synthesis
 
+    await reportStage(options, "synthesis", 70);
     const finalStory = await callLLM(
       synthesisProvider,
       [
@@ -266,7 +291,7 @@ Write the complete story with:
 Begin the story directly—no meta-commentary.`,
         },
       ],
-      { temperature: 0.8, maxTokens: 4000 }
+      { temperature: 0.8, maxTokens: 4000, signal: options.signal }
     );
 
     console.log(`[Z-88 Multi] Synthesis complete`);
@@ -276,6 +301,7 @@ Begin the story directly—no meta-commentary.`,
     let qualityScore = 0.85;
 
     if (claudeSetup) {
+      await reportStage(options, "review", 86);
       const qualityAssessment = await invokeAgent(
         claudeSetup.config,
         claudeSetup.provider,
@@ -291,7 +317,8 @@ Rate on a scale of 0.0 to 1.0 for:
 4. Pacing
 5. Originality
 
-Provide only a single number (e.g., 0.87) representing the overall quality score.`
+Provide only a single number (e.g., 0.87) representing the overall quality score.`,
+        options.signal
       );
 
       const scoreMatch = qualityAssessment.match(/0\.\d+|1\.0/);
@@ -307,6 +334,7 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
     let ethicalApproval = true;
 
     if (kavachSetup) {
+      await reportStage(options, "review", 91);
       const ethicalReview = await invokeAgent(
         kavachSetup.config,
         kavachSetup.provider,
@@ -320,7 +348,8 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
 Story excerpt:
 ${finalStory.content.substring(0, 1500)}...
 
-Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
+Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`,
+        options.signal
       );
 
       const normalizedReview = ethicalReview.toUpperCase();
@@ -381,6 +410,7 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
       metadata,
     };
   } catch (error) {
+    if (options.signal?.aborted) throw error;
     console.error(`[Z-88 Multi] Ritual ${ritualId} failed:`, error);
     return {
       success: false,
@@ -400,7 +430,8 @@ async function invokeAgent(
   config: AgentConfig,
   provider: LLMProvider,
   temperature: number,
-  userPrompt: string
+  userPrompt: string,
+  signal?: AbortSignal
 ): Promise<string> {
   const messages: LLMMessage[] = [
     { role: "system", content: config.systemPrompt },
@@ -410,6 +441,7 @@ async function invokeAgent(
   const response = await callLLM(provider, messages, {
     temperature,
     maxTokens: 2000,
+    signal,
   });
   return response.content;
 }

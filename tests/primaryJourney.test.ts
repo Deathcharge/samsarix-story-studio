@@ -379,6 +379,104 @@ describe("primary local story journey", () => {
       caller.stories.generate({ prompt: "too short", preset: "balanced" })
     ).rejects.toThrow();
   });
+
+  it("runs a durable metadata-only generation job to a saved draft", async () => {
+    const caller = await createCaller();
+    const started = await caller.stories.startGeneration({
+      prompt:
+        "A signal archivist discovers the emergency broadcasts predict tomorrow's disappearances",
+      preset: "balanced",
+    });
+    expect(started).toMatchObject({
+      status: "queued",
+      stage: "queued",
+      mode: "demo",
+    });
+    expect(started).not.toHaveProperty("userId");
+    expect(started).not.toHaveProperty("prompt");
+    expect(started).not.toHaveProperty("content");
+
+    let job = started;
+    for (
+      let attempt = 0;
+      attempt < 200 && job.status !== "succeeded";
+      attempt += 1
+    ) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      const current = await caller.stories.generationStatus({
+        jobId: started.id,
+      });
+      if (!current) throw new Error("Generation job disappeared");
+      job = current;
+    }
+    expect(job).toMatchObject({
+      status: "succeeded",
+      stage: "completed",
+      progress: 100,
+    });
+    expect(job.ritualId).toMatch(/^demo_/);
+    expect(job.storyId).toBeTypeOf("number");
+    expect(await caller.stories.activeGeneration()).toBeNull();
+    expect(
+      await caller.stories.getByRitualId({ ritualId: job.ritualId! })
+    ).toMatchObject({ id: job.storyId });
+  });
+
+  it("cancels an active job, blocks overlap, and enforces job ownership", async () => {
+    const originalDelay = process.env.DEMO_STAGE_DELAY_MS;
+    process.env.DEMO_STAGE_DELAY_MS = "1000";
+    try {
+      const owner = await db.getLocalUser();
+      const caller = await createCaller(owner);
+      const beforeCount = (await caller.stories.list()).length;
+      const started = await caller.stories.startGeneration({
+        prompt:
+          "A harbor pilot hears a second city answering every foghorn from beneath the bay",
+        preset: "balanced",
+      });
+      await expect(
+        caller.stories.startGeneration({
+          prompt:
+            "A second premise must wait until the current generation has ended",
+          preset: "balanced",
+        })
+      ).rejects.toThrow("already being generated");
+
+      const otherCaller = await createCaller({
+        ...owner,
+        id: 996,
+        openId: "generation-intruder",
+        name: "Generation Intruder",
+        role: "user",
+      });
+      expect(
+        await otherCaller.stories.generationStatus({ jobId: started.id })
+      ).toBeNull();
+      await expect(
+        otherCaller.stories.cancelGeneration({ jobId: started.id })
+      ).rejects.toThrow("Generation not found");
+
+      await caller.stories.cancelGeneration({ jobId: started.id });
+      let job = await caller.stories.generationStatus({ jobId: started.id });
+      for (
+        let attempt = 0;
+        attempt < 200 && job?.status !== "cancelled";
+        attempt += 1
+      ) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+        job = await caller.stories.generationStatus({ jobId: started.id });
+      }
+      expect(job).toMatchObject({
+        status: "cancelled",
+        cancelRequested: 1,
+      });
+      expect((await caller.stories.list()).length).toBe(beforeCount);
+      expect(await caller.stories.activeGeneration()).toBeNull();
+    } finally {
+      if (originalDelay === undefined) delete process.env.DEMO_STAGE_DELAY_MS;
+      else process.env.DEMO_STAGE_DELAY_MS = originalDelay;
+    }
+  });
 });
 
 describe("local request boundary", () => {

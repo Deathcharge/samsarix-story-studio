@@ -1,0 +1,2 @@
+ALTER TABLE `generationJobs` MODIFY COLUMN `stage` enum('queued','preparing','plot','characters','world','twists','research','synthesis','review','saving','completed','failed','cancelled','interrupted') NOT NULL;--> statement-breakpoint
+CREATE INDEX `generationJobs_user_status_created_idx` ON `generationJobs` (`userId`,`status`,`createdAt`);
