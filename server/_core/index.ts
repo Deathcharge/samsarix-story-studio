@@ -4,6 +4,8 @@ import net from "node:net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import express from "express";
 import { appRouter } from "../routers";
+import * as db from "../db";
+import { registerGenerationEventRoutes } from "../generationEvents";
 import { createContext } from "./context";
 import { ENV } from "./env";
 import {
@@ -68,6 +70,9 @@ export async function startServer(): Promise<Server> {
   app.get("/healthz", (_req, res) => {
     res.json({ ok: true, mode: ENV.authMode });
   });
+
+  await db.recoverInterruptedGenerationJobs();
+  registerGenerationEventRoutes(app);
 
   const standardJsonParser = express.json({ limit: "1mb" });
   const backupImportJsonParser = express.json({ limit: "8mb" });

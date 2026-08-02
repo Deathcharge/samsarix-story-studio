@@ -4,8 +4,10 @@ import path from "node:path";
 import type {
   AgentLog,
   CanonEntry,
+  GenerationJob,
   InsertAgentLog,
   InsertCanonEntry,
+  InsertGenerationJob,
   InsertProject,
   InsertStory,
   InsertStoryRevision,
@@ -24,7 +26,7 @@ import {
 import type { ProjectImportPlan } from "./projectImport";
 
 type LocalState = {
-  version: 3;
+  version: 4;
   nextIds: {
     users: number;
     projects: number;
@@ -39,17 +41,22 @@ type LocalState = {
   stories: Story[];
   canonEntries: CanonEntry[];
   storyRevisions: StoryRevision[];
+  generationJobs: GenerationJob[];
   ucfStates: UcfState[];
   agentLogs: AgentLog[];
 };
 
-type LegacyLocalStateV2 = Omit<LocalState, "version" | "stories"> & {
+type LegacyLocalStateV3 = Omit<LocalState, "version" | "generationJobs"> & {
+  version: 3;
+};
+
+type LegacyLocalStateV2 = Omit<LegacyLocalStateV3, "version" | "stories"> & {
   version: 2;
   stories: Array<Omit<Story, "draftStatus" | "synopsis">>;
 };
 
 type LegacyLocalStateV1 = Omit<
-  LocalState,
+  LegacyLocalStateV3,
   "version" | "projects" | "canonEntries" | "storyRevisions" | "nextIds"
 > & {
   version: 1;
@@ -67,6 +74,7 @@ const DATE_FIELDS = new Set([
   "lastSignedIn",
   "timestamp",
   "deletedAt",
+  "completedAt",
 ]);
 
 let statePromise: Promise<LocalState> | null = null;
@@ -108,7 +116,7 @@ function reviveDates(value: unknown): unknown {
 function createInitialState(): LocalState {
   const now = new Date();
   return {
-    version: 3,
+    version: 4,
     nextIds: {
       users: 2,
       projects: 1,
@@ -135,19 +143,28 @@ function createInitialState(): LocalState {
     stories: [],
     canonEntries: [],
     storyRevisions: [],
+    generationJobs: [],
     ucfStates: [],
     agentLogs: [],
   };
 }
 
 function migrateState(
-  parsed: LocalState | LegacyLocalStateV2 | LegacyLocalStateV1
+  parsed:
+    | LocalState
+    | LegacyLocalStateV3
+    | LegacyLocalStateV2
+    | LegacyLocalStateV1
 ): LocalState {
-  if (parsed.version === 3) return parsed;
+  if (parsed.version === 4) return parsed;
+  if (parsed.version === 3) {
+    return { ...parsed, version: 4, generationJobs: [] };
+  }
   if (parsed.version === 2) {
     return {
       ...parsed,
-      version: 3,
+      version: 4,
+      generationJobs: [],
       stories: parsed.stories.map(story => ({
         ...story,
         draftStatus: DEFAULT_CHAPTER_STATUS,
@@ -163,7 +180,7 @@ function migrateState(
 
   return {
     ...parsed,
-    version: 3,
+    version: 4,
     nextIds: {
       ...parsed.nextIds,
       projects: 1,
@@ -179,7 +196,29 @@ function migrateState(
     })),
     canonEntries: [],
     storyRevisions: [],
+    generationJobs: [],
   };
+}
+
+function interruptOrphanedGenerationJobs(state: LocalState) {
+  let changed = false;
+  const now = new Date();
+  for (const job of state.generationJobs) {
+    if (
+      job.status !== "queued" &&
+      job.status !== "running" &&
+      job.status !== "cancelling"
+    ) {
+      continue;
+    }
+    job.status = "interrupted";
+    job.stageLabel = "Generation stopped when the local server restarted";
+    job.errorMessage = "The local server restarted before this draft finished.";
+    job.completedAt = now;
+    job.updatedAt = now;
+    changed = true;
+  }
+  return changed;
 }
 
 async function persist(state: LocalState) {
@@ -201,10 +240,12 @@ async function loadState(): Promise<LocalState> {
     const raw = await readFile(dataPath, "utf8");
     const parsed = reviveDates(JSON.parse(raw)) as
       | LocalState
+      | LegacyLocalStateV3
       | LegacyLocalStateV2
       | LegacyLocalStateV1;
     const state = migrateState(parsed);
-    if (parsed.version !== 3) await persist(state);
+    const recovered = interruptOrphanedGenerationJobs(state);
+    if (parsed.version !== 4 || recovered) await persist(state);
     return state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -215,9 +256,11 @@ async function loadState(): Promise<LocalState> {
         const raw = await readFile(legacyPath, "utf8");
         const parsed = reviveDates(JSON.parse(raw)) as
           | LocalState
+          | LegacyLocalStateV3
           | LegacyLocalStateV2
           | LegacyLocalStateV1;
         const state = migrateState(parsed);
+        interruptOrphanedGenerationJobs(state);
         await persist(state);
         return state;
       } catch (legacyError) {
@@ -277,6 +320,98 @@ function pruneStoryRevisions(state: LocalState, storyId: number) {
   state.storyRevisions = state.storyRevisions.filter(
     revision => revision.storyId !== storyId || retainedIds.has(revision.id)
   );
+}
+
+function pruneGenerationJobs(state: LocalState, userId: number) {
+  const retainedTerminalIds = new Set(
+    state.generationJobs
+      .filter(
+        job =>
+          job.userId === userId &&
+          job.status !== "queued" &&
+          job.status !== "running" &&
+          job.status !== "cancelling"
+      )
+      .sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+      )
+      .slice(0, 100)
+      .map(job => job.id)
+  );
+  state.generationJobs = state.generationJobs.filter(
+    job =>
+      job.userId !== userId ||
+      job.status === "queued" ||
+      job.status === "running" ||
+      job.status === "cancelling" ||
+      retainedTerminalIds.has(job.id)
+  );
+}
+
+export async function createGenerationJob(input: InsertGenerationJob) {
+  return mutate(state => {
+    const now = new Date();
+    const record: GenerationJob = {
+      id: input.id,
+      userId: input.userId,
+      projectId: input.projectId ?? null,
+      storyId: input.storyId ?? null,
+      ritualId: input.ritualId ?? null,
+      mode: input.mode,
+      status: input.status,
+      stage: input.stage,
+      stageLabel: input.stageLabel,
+      progress: input.progress ?? 0,
+      cancelRequested: input.cancelRequested ?? 0,
+      errorMessage: input.errorMessage ?? null,
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+      completedAt: input.completedAt ?? null,
+    };
+    state.generationJobs.push(record);
+    pruneGenerationJobs(state, input.userId);
+    return clone(record);
+  });
+}
+
+export async function getGenerationJob(id: string, userId: number) {
+  const state = await readState();
+  const job = state.generationJobs.find(
+    entry => entry.id === id && entry.userId === userId
+  );
+  return job ? clone(job) : undefined;
+}
+
+export async function getActiveGenerationJob(userId: number) {
+  const state = await readState();
+  const job = state.generationJobs
+    .filter(
+      entry =>
+        entry.userId === userId &&
+        (entry.status === "queued" ||
+          entry.status === "running" ||
+          entry.status === "cancelling")
+    )
+    .sort(
+      (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+    )[0];
+  return job ? clone(job) : undefined;
+}
+
+export async function updateGenerationJob(
+  id: string,
+  userId: number,
+  data: Partial<InsertGenerationJob>
+) {
+  return mutate(state => {
+    const job = state.generationJobs.find(
+      entry => entry.id === id && entry.userId === userId
+    );
+    if (!job) return undefined;
+    Object.assign(job, data, { updatedAt: data.updatedAt ?? new Date() });
+    pruneGenerationJobs(state, userId);
+    return clone(job);
+  });
 }
 
 export async function getLocalUser(): Promise<User> {

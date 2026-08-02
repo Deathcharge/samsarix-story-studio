@@ -38,7 +38,7 @@ Set `SAMSARIX_DATA_FILE` to choose another location. Existing default data at `.
 
 Standalone drafts remain supported when a project would be unnecessary.
 
-Generation is currently request/response rather than streaming. The progress display describes the planned stages; it does not claim live per-agent telemetry. Project context is capped at eight canon entries and 6,000 characters. Its token estimate uses the transparent approximation of four characters per token; provider billing remains authoritative.
+Generation runs as a durable local job. The studio receives live server-authored stage events, reconnects to an active job after a page reload, and falls back to periodic status checks if the event stream disconnects. Writers can cancel an active job; cancellation aborts the current supported provider SDK request. Stage percentages describe workflow milestones, not token-level streaming or precise time remaining. Project context is capped at eight canon entries and 6,000 characters. Its token estimate uses the transparent approximation of four characters per token; provider billing remains authoritative.
 
 ## Provider mode
 
@@ -102,6 +102,7 @@ The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint expo
 
 - The default build has no analytics and makes no font or provider request in demo mode.
 - Local projects, canon, revisions, and stories can contain sensitive text; protect and back up the data file accordingly.
+- Generation-job history contains lifecycle metadata and story/project identifiers, not prompts or draft text; the newest 100 terminal jobs per local writer are retained.
 - In provider mode, prompts, intermediate material, and drafts are sent to the configured provider. Review that provider’s retention and training terms.
 - Generated text can be incorrect, biased, derivative, or unwanted. “Quality,” “ethical review,” and UCF metadata are advisory heuristics only.
 - Prompt validation, story ownership checks, loopback enforcement, body limits, timeouts, retry limits, and call ceilings reduce risk; they do not make hosted multi-user operation production-ready.
@@ -109,7 +110,7 @@ The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint expo
 
 ## Scope and known limitations
 
-The release intentionally does not include streaming/cancellation, scene-level cards, public sharing, PDF/EPUB export, billing, or collaboration. Chapter planning is currently manuscript-level: a chapter has one synopsis and status rather than an ordered list of scenes. Archive search is client-side and suited to a personal library. Backup restore always creates a new project; merging into or replacing an existing project is intentionally unsupported. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
+The release intentionally does not include token streaming, scene-level cards, public sharing, PDF/EPUB export, billing, or collaboration. Chapter planning is currently manuscript-level: a chapter has one synopsis and status rather than an ordered list of scenes. Archive search is client-side and suited to a personal library. Backup restore always creates a new project; merging into or replacing an existing project is intentionally unsupported. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
 
 Legacy component examples remain outside the active TypeScript and runtime graph so historical UI source is preserved without making it part of the release contract. Incomplete QoL helpers and private-platform runtime adapters were removed. Future cleanup is tracked in [the productization record](docs/PRODUCTIZATION.md).
 

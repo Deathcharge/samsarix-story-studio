@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import type { GenerationStage } from "../shared/generationLifecycle";
+
 const PROTAGONISTS = ["Mara Venn", "Ivo Calder", "Sera Nox", "Jonah Vale"];
 const DISTRICTS = [
   "Glass Harbor",
@@ -28,7 +31,39 @@ function titleFromPrompt(prompt: string) {
   return words.length > 0 ? `${words.join(" ")} Protocol` : "Neon Protocol";
 }
 
-export function executeDemoRitual(prompt: string, context?: string) {
+type DemoRitualOptions = {
+  signal?: AbortSignal;
+  onStage?: (stage: GenerationStage, progress: number) => void | Promise<void>;
+};
+
+async function pause(signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const configured = Number(process.env.DEMO_STAGE_DELAY_MS ?? 180);
+  const delay = Number.isFinite(configured)
+    ? Math.min(Math.max(Math.floor(configured), 0), 5_000)
+    : 180;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, delay);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+}
+
+export async function executeDemoRitual(
+  prompt: string,
+  context?: string,
+  options: DemoRitualOptions = {}
+) {
+  await options.onStage?.("preparing", 8);
+  await pause(options.signal);
+  await options.onStage?.("synthesis", 70);
+  await pause(options.signal);
   const hash = hashPrompt(prompt);
   const contextEntries = [
     ...(context?.matchAll(/^\[([^\]]+)\]\s+(.+)$/gm) ?? []),
@@ -79,6 +114,9 @@ By sunrise, the tram line was running twelve minutes late. Clinics had canceled 
 ${protagonist} returned to the street as the rain stopped. In the sudden quiet, repair crews opened the first archive cell under public observation. Nothing had been solved forever. But the next decision would be made in daylight, by the people who would have to live with it.`;
 
   const wordCount = storyText.trim().split(/\s+/).length;
+  await options.onStage?.("review", 90);
+  await pause(options.signal);
+  options.signal?.throwIfAborted();
   return {
     success: true as const,
     ritualId,
@@ -108,4 +146,3 @@ ${protagonist} returned to the street as the rain stopped. In the sudden quiet, 
     },
   };
 }
-import { randomUUID } from "node:crypto";

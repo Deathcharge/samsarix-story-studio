@@ -7,7 +7,7 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-story-studio` (ready).
 
-Current disposition: Versions 1.0 through 1.2 are merged product candidates. The 1.3 candidate and its command and browser evidence are recorded in `docs/PRODUCTIZATION.md`; merge and exact-head CI, packaged distribution, a user pilot, and flagship adoption remain separate decisions.
+Current disposition: Versions 1.0 through 1.3 are merged product candidates. The 1.4 generation-lifecycle candidate is under verification; packaged distribution, a user pilot, and flagship adoption remain separate decisions.
 
 ## Stabilize the productized default
 
@@ -18,7 +18,7 @@ Current disposition: Versions 1.0 through 1.2 are merged product candidates. The
 - Review priority: persist logs/trajectories or remove the legacy routes.
 - [x] Remove story text from continuation URLs.
 - [x] Make local persistence commits consistent after write failure.
-- Review priority: test cancellation/custom endpoints.
+- [x] Persist content-free generation jobs, report live stages, recover interrupted work, and support cancellation.
 
 ## Release candidate
 
@@ -29,7 +29,7 @@ Current disposition: Versions 1.0 through 1.2 are merged product candidates. The
 Current hardening backlog:
 
 - No live provider smoke test or packaged-artifact user pilot; both require owner credentials or participants.
-- No committed tests cover provider SDK contracts, MySQL execution, disk failure/corruption, generation cancellation, or the in-flight guard.
+- No committed tests execute paid provider SDK calls, live MySQL, or disk failure/corruption paths. Credential-free behavioral tests cover generation cancellation, overlap prevention, job ownership, and restart recovery.
 - “Automated review passed,” quality/UCF scores, agent logs, and trajectories overstate the evidence currently recorded: review can default to success, UCF values are derived constants, tokens are zero placeholders, and new stories write no log/trajectory rows.
 - Provider defaults and response compatibility can drift; five adapters plus unrestricted `OPENAI_BASE_URL` create ongoing maintenance/security work.
 - [x] Project backups round-trip through schema-validating, copy-only import with conflict-safe identity remapping.

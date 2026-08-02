@@ -10,6 +10,15 @@ import {
 import { getAllAgentConfigs, getAllPresetModes } from "./agentConfig";
 import { parseActivationKeys, selectCanonContext } from "./canonContext";
 import * as db from "./db";
+import {
+  cancelGeneration,
+  getActiveGenerationJob,
+  getGenerationJob,
+  startGeneration,
+} from "./generationCoordinator";
+import { generationInputSchema } from "./generationInput";
+import { claimGeneration, releaseGeneration } from "./generationLock";
+import { generateAndPersistStory } from "./generationService";
 import { enhancePrompt } from "./promptEnhancer";
 import {
   generateContinuationPrompt,
@@ -17,17 +26,6 @@ import {
 } from "./storyContinuation";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { executeCreativeRitualMulti } from "./z88EngineMulti";
-
-const providerSchema = z.enum([
-  "openai",
-  "anthropic",
-  "xai",
-  "google",
-  "perplexity",
-]);
-
-const activeGenerations = new Set<number>();
 const canonKindSchema = z.enum([
   "character",
   "location",
@@ -384,176 +382,36 @@ export const appRouter = router({
 
   stories: router({
     generate: protectedProcedure
-      .input(
-        z.object({
-          prompt: z.string().trim().min(10).max(1_000),
-          preset: z
-            .enum([
-              "balanced",
-              "creative",
-              "structured",
-              "experimental",
-              "research",
-            ])
-            .default("balanced"),
-          customAgents: z
-            .array(
-              z.object({
-                agentId: z.string().trim().min(1).max(32),
-                provider: providerSchema.optional(),
-                temperature: z.number().min(0).max(1).optional(),
-                enabled: z.boolean(),
-              })
-            )
-            .max(7)
-            .optional()
-            .refine(
-              agents =>
-                !agents ||
-                new Set(agents.map(agent => agent.agentId)).size ===
-                  agents.length,
-              "Agent IDs must be unique"
-            ),
-          seriesId: z.string().trim().min(1).max(128).optional(),
-          chapterNumber: z.number().int().min(1).max(10_000).optional(),
-          previousChapterId: z.number().int().positive().optional(),
-          projectId: z.number().int().positive().optional(),
-          selectedCanonIds: z
-            .array(z.number().int().positive())
-            .max(20)
-            .default([]),
-        })
-      )
+      .input(generationInputSchema)
       .mutation(async ({ input, ctx }) => {
-        if (activeGenerations.has(ctx.user.id)) {
+        if (!claimGeneration(ctx.user.id)) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
             message: "A story is already being generated for this user.",
           });
         }
-
-        activeGenerations.add(ctx.user.id);
         try {
-          const previousStory = input.previousChapterId
-            ? await db.getStoryById(input.previousChapterId, ctx.user.id)
-            : undefined;
-          if (input.previousChapterId && !previousStory) {
-            throw new TRPCError({
-              code: "NOT_FOUND",
-              message: "Previous chapter not found",
-            });
-          }
-
-          const projectId = input.projectId ?? previousStory?.projectId ?? null;
-          if (
-            previousStory?.projectId &&
-            projectId !== previousStory.projectId
-          ) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "A continuation must remain in its existing project.",
-            });
-          }
-
-          const project = projectId
-            ? await requireProject(projectId, ctx.user.id)
-            : null;
-          const canon = project
-            ? await db.getCanonEntries(project.id, ctx.user.id)
-            : [];
-          const contextSelection = project
-            ? selectCanonContext(
-                project,
-                canon,
-                input.prompt,
-                input.selectedCanonIds
-              )
-            : null;
-          const projectStories = project
-            ? await db.getStoriesByProject(project.id, ctx.user.id)
-            : [];
-          // Project order is structural: blank planned chapters remain real
-          // predecessors instead of disappearing from the manuscript chain.
-          const previousProjectChapter = previousStory ?? projectStories.at(-1);
-          const seriesId = previousProjectChapter
-            ? previousProjectChapter.seriesId ||
-              generateSeriesId(`story_${previousProjectChapter.id}`)
-            : project
-              ? `project_${project.id}`
-              : input.seriesId;
-          const chapterNumber = previousProjectChapter
-            ? (previousProjectChapter.chapterNumber ?? 1) + 1
-            : project
-              ? Math.max(
-                  0,
-                  ...projectStories.map(story => story.chapterNumber ?? 0)
-                ) + 1
-              : input.chapterNumber;
-
-          const result = await executeCreativeRitualMulti(input.prompt, {
-            preset: input.preset,
-            context: contextSelection?.context,
-            customAgents: input.customAgents
-              ?.filter(agent => agent.enabled)
-              .map(({ enabled: _enabled, ...agent }) => agent),
-          });
-
-          if (!result.success) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: result.error || "Story generation failed",
-            });
-          }
-
-          await db.createStory({
-            userId: ctx.user.id,
-            projectId,
-            title: result.title,
-            prompt: input.prompt,
-            content: result.storyText,
-            ritualId: result.ritualId,
-            wordCount: result.metadata.wordCount,
-            qualityScore: Math.round(result.metadata.qualityScore * 100),
-            ethicalApproval: result.metadata.ethicalApproval ? 1 : 0,
-            ucfHarmony: Math.round(
-              result.metadata.ucfSnapshot.harmony * 10_000
-            ),
-            ucfPrana: Math.round(result.metadata.ucfSnapshot.prana * 10_000),
-            ucfDrishti: Math.round(
-              result.metadata.ucfSnapshot.drishti * 10_000
-            ),
-            ucfKlesha: Math.round(result.metadata.ucfSnapshot.klesha * 10_000),
-            ucfResilience: Math.round(
-              result.metadata.ucfSnapshot.resilience * 10_000
-            ),
-            ucfZoom: Math.round(result.metadata.ucfSnapshot.zoom * 10_000),
-            agentContributions: JSON.stringify(
-              result.metadata.agentContributions
-            ),
-            seriesId,
-            chapterNumber,
-            previousChapterId: previousProjectChapter?.id,
-          });
-
-          if (previousProjectChapter && !previousProjectChapter.seriesId) {
-            await db.updateStory(previousProjectChapter.id, ctx.user.id, {
-              seriesId,
-              chapterNumber: previousProjectChapter.chapterNumber ?? 1,
-            });
-          }
-
-          return {
-            ritualId: result.ritualId,
-            title: result.title,
-            storyText: result.storyText,
-            metadata: result.metadata,
-            projectId,
-            contextSelection,
-          };
+          return await generateAndPersistStory(input, ctx.user.id);
         } finally {
-          activeGenerations.delete(ctx.user.id);
+          releaseGeneration(ctx.user.id);
         }
       }),
+
+    startGeneration: protectedProcedure
+      .input(generationInputSchema)
+      .mutation(({ input, ctx }) => startGeneration(input, ctx.user.id)),
+
+    generationStatus: protectedProcedure
+      .input(z.object({ jobId: z.string().trim().min(1).max(64) }))
+      .query(({ input, ctx }) => getGenerationJob(input.jobId, ctx.user.id)),
+
+    activeGeneration: protectedProcedure.query(({ ctx }) =>
+      getActiveGenerationJob(ctx.user.id)
+    ),
+
+    cancelGeneration: protectedProcedure
+      .input(z.object({ jobId: z.string().trim().min(1).max(64) }))
+      .mutation(({ input, ctx }) => cancelGeneration(input.jobId, ctx.user.id)),
 
     list: protectedProcedure.query(async ({ ctx }) => {
       const allStories = await db.getAllStories(ctx.user.id);
