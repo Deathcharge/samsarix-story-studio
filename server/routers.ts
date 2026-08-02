@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { Story } from "../drizzle/schema";
+import { projectBackupSchema } from "../shared/projectBackup";
 import { getAllAgentConfigs, getAllPresetModes } from "./agentConfig";
 import { parseActivationKeys, selectCanonContext } from "./canonContext";
 import * as db from "./db";
@@ -51,6 +52,14 @@ function parseContributions(value: string) {
   } catch {
     return [];
   }
+}
+
+function omitUserId<T extends { userId: unknown }>(
+  value: T
+): Omit<T, "userId"> {
+  const { userId, ...portable } = value;
+  void userId;
+  return portable;
 }
 
 function presentStory(story: Story) {
@@ -146,6 +155,7 @@ export const appRouter = router({
             updatedAt: story.updatedAt,
             seriesId: story.seriesId,
             chapterNumber: story.chapterNumber,
+            previousChapterId: story.previousChapterId,
           })),
           canon: canon.map(entry => ({
             ...entry,
@@ -266,18 +276,25 @@ export const appRouter = router({
           format: "samsarix-project" as const,
           version: 1 as const,
           exportedAt: new Date(),
-          project,
+          project: omitUserId(project),
           canon: canon.map(entry => ({
-            ...entry,
+            ...omitUserId(entry),
             activationKeys: parseActivationKeys(entry.activationKeys),
             alwaysInclude: entry.alwaysInclude === 1,
           })),
           stories: stories.map((story, index) => ({
-            ...presentStory(story),
-            revisions: revisions[index],
+            ...omitUserId(presentStory(story)),
+            projectId: project.id,
+            revisions: revisions[index].map(omitUserId),
           })),
         };
       }),
+
+    importBackup: protectedProcedure
+      .input(z.object({ backup: projectBackupSchema }))
+      .mutation(({ input, ctx }) =>
+        db.importProjectBackup(input.backup, ctx.user.id)
+      ),
   }),
 
   stories: router({

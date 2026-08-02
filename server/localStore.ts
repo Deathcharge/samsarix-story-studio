@@ -17,6 +17,7 @@ import type {
   UcfState,
   User,
 } from "../drizzle/schema";
+import type { ProjectImportPlan } from "./projectImport";
 
 type LocalState = {
   version: 2;
@@ -332,6 +333,68 @@ export async function updateProject(
     if (!project) return false;
     Object.assign(project, data, { updatedAt: new Date() });
     return true;
+  });
+}
+
+export async function importProject(plan: ProjectImportPlan, userId: number) {
+  return mutate(state => {
+    const projectId = state.nextIds.projects++;
+    state.projects.push({
+      id: projectId,
+      userId,
+      ...plan.project,
+    });
+
+    for (const entry of plan.canon) {
+      state.canonEntries.push({
+        id: state.nextIds.canonEntries++,
+        projectId,
+        userId,
+        ...entry,
+      });
+    }
+
+    const storyIds = new Map<number, number>();
+    const importedStories = new Map<number, Story>();
+    for (const story of plan.stories) {
+      const id = state.nextIds.stories++;
+      const record: Story = {
+        id,
+        userId,
+        projectId,
+        previousChapterId: null,
+        ...story.values,
+      };
+      state.stories.push(record);
+      storyIds.set(story.sourceId, id);
+      importedStories.set(story.sourceId, record);
+    }
+
+    for (const story of plan.stories) {
+      const record = importedStories.get(story.sourceId);
+      if (!record) throw new Error("Imported story mapping was lost");
+      if (story.previousSourceId) {
+        const previousChapterId = storyIds.get(story.previousSourceId);
+        if (!previousChapterId) {
+          throw new Error("Imported previous chapter mapping was lost");
+        }
+        record.previousChapterId = previousChapterId;
+      }
+
+      for (const revision of story.revisions) {
+        state.storyRevisions.push({
+          id: state.nextIds.storyRevisions++,
+          storyId: record.id,
+          userId,
+          ...revision,
+        });
+      }
+    }
+
+    return {
+      projectId,
+      ...plan.summary,
+    };
   });
 }
 

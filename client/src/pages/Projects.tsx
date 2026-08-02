@@ -2,10 +2,12 @@ import { useState } from "react";
 import {
   BookOpen,
   CircleAlert,
+  FileCheck2,
   FilePlus2,
   FolderOpen,
   Loader2,
   Sparkles,
+  Upload,
   Zap,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -14,19 +16,77 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import {
+  MAX_PROJECT_BACKUP_BYTES,
+  PROJECT_BACKUP_FORMAT,
+  PROJECT_BACKUP_VERSION,
+  projectBackupSchema,
+  summarizeProjectBackup,
+  type ProjectBackup,
+} from "@shared/projectBackup";
 
 export default function Projects() {
   const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
   const [title, setTitle] = useState("");
   const [premise, setPremise] = useState("");
   const [genre, setGenre] = useState("");
   const [style, setStyle] = useState("");
+  const [backup, setBackup] = useState<ProjectBackup | null>(null);
+  const [backupName, setBackupName] = useState("");
+  const [importError, setImportError] = useState("");
   const projectsQuery = trpc.projects.list.useQuery();
   const createMutation = trpc.projects.create.useMutation({
     onSuccess: project => setLocation(`/project/${project.id}`),
   });
+  const importMutation = trpc.projects.importBackup.useMutation({
+    onSuccess: async result => {
+      await utils.projects.list.invalidate();
+      setLocation(`/project/${result.projectId}`);
+    },
+  });
   const canCreate = title.trim().length > 0 && premise.trim().length > 0;
   const hasProjects = Boolean(projectsQuery.data?.length);
+  const backupSummary = backup ? summarizeProjectBackup(backup) : null;
+
+  async function handleBackupFile(file: File | undefined) {
+    setBackup(null);
+    setBackupName(file?.name ?? "");
+    setImportError("");
+    importMutation.reset();
+    if (!file) return;
+    if (file.size > MAX_PROJECT_BACKUP_BYTES) {
+      setImportError("That backup is larger than the 7 MB import limit.");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        !("format" in parsed) ||
+        parsed.format !== PROJECT_BACKUP_FORMAT
+      ) {
+        setImportError("Choose a Samsarix project backup JSON file.");
+        return;
+      }
+      if (!("version" in parsed) || parsed.version !== PROJECT_BACKUP_VERSION) {
+        setImportError("This backup version is not supported yet.");
+        return;
+      }
+      const validated = projectBackupSchema.safeParse(parsed);
+      if (!validated.success) {
+        setImportError(
+          validated.error.issues[0]?.message ?? "The backup is invalid."
+        );
+        return;
+      }
+      setBackup(validated.data);
+    } catch {
+      setImportError("The selected file is not valid JSON.");
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -161,6 +221,87 @@ export default function Projects() {
                 )}
                 Create project
               </Button>
+              <div className="border-t border-border/60 pt-5">
+                <div className="flex items-start gap-3">
+                  <Upload
+                    className="mt-0.5 h-5 w-5 text-primary"
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <h2 className="font-semibold">Restore a backup</h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      Imports are validated and created as a new project.
+                      Existing work is never overwritten.
+                    </p>
+                  </div>
+                </div>
+                <label
+                  htmlFor="project-backup"
+                  className="mt-4 block text-sm font-semibold"
+                >
+                  Samsarix backup JSON
+                </label>
+                <Input
+                  id="project-backup"
+                  className="mt-2 file:mr-3 file:text-foreground"
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={event => {
+                    void handleBackupFile(event.target.files?.[0]);
+                    event.target.value = "";
+                  }}
+                />
+                {importError || importMutation.error ? (
+                  <p role="alert" className="mt-3 text-sm text-destructive">
+                    {importError || importMutation.error?.message}
+                  </p>
+                ) : null}
+                {backup && backupSummary ? (
+                  <div
+                    className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4"
+                    aria-live="polite"
+                  >
+                    <div className="flex items-start gap-3">
+                      <FileCheck2
+                        className="mt-0.5 h-5 w-5 text-primary"
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">
+                          {backupSummary.title}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {backupName} · {backupSummary.storyCount}{" "}
+                          {backupSummary.storyCount === 1
+                            ? "chapter"
+                            : "chapters"}{" "}
+                          · {backupSummary.canonCount}{" "}
+                          {backupSummary.canonCount === 1
+                            ? "canon entry"
+                            : "canon entries"}{" "}
+                          · {backupSummary.revisionCount}{" "}
+                          {backupSummary.revisionCount === 1
+                            ? "revision"
+                            : "revisions"}{" "}
+                          · {backupSummary.wordCount.toLocaleString()} words
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      className="mt-4 w-full"
+                      disabled={importMutation.isPending}
+                      onClick={() => importMutation.mutate({ backup })}
+                    >
+                      {importMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="mr-2 h-4 w-4" />
+                      )}
+                      Import as new project
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
             </Card>
           </section>
 
