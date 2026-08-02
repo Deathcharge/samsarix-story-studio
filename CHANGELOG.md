@@ -2,6 +2,12 @@
 
 All notable changes to Samsarix Story Studio are documented here.
 
+## 1.1.1 — 2026-08-01
+
+- Upgraded Vite and Vitest to patched release lines and pinned vulnerable transitive build dependencies to audited versions.
+- Moved dependency overrides into pnpm 11's workspace configuration so clean installs and CI enforce the same resolutions.
+- Verified the complete dependency graph with no known vulnerabilities or peer dependency issues.
+
 ## 1.1.0 — 2026-08-01
 
 - Added project workspaces that group ordered manuscript chapters with a project brief and style guidance.
