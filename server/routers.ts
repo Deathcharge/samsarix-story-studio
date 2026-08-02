@@ -54,6 +54,14 @@ function parseContributions(value: string) {
   }
 }
 
+function omitUserId<T extends { userId: unknown }>(
+  value: T
+): Omit<T, "userId"> {
+  const { userId, ...portable } = value;
+  void userId;
+  return portable;
+}
+
 function presentStory(story: Story) {
   return {
     ...story,
@@ -268,16 +276,16 @@ export const appRouter = router({
           format: "samsarix-project" as const,
           version: 1 as const,
           exportedAt: new Date(),
-          project,
+          project: omitUserId(project),
           canon: canon.map(entry => ({
-            ...entry,
+            ...omitUserId(entry),
             activationKeys: parseActivationKeys(entry.activationKeys),
             alwaysInclude: entry.alwaysInclude === 1,
           })),
           stories: stories.map((story, index) => ({
-            ...presentStory(story),
+            ...omitUserId(presentStory(story)),
             projectId: project.id,
-            revisions: revisions[index],
+            revisions: revisions[index].map(omitUserId),
           })),
         };
       }),

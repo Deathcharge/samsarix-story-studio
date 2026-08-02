@@ -373,9 +373,13 @@ export async function importProject(plan: ProjectImportPlan, userId: number) {
     for (const story of plan.stories) {
       const record = importedStories.get(story.sourceId);
       if (!record) throw new Error("Imported story mapping was lost");
-      record.previousChapterId = story.previousSourceId
-        ? (storyIds.get(story.previousSourceId) ?? null)
-        : null;
+      if (story.previousSourceId) {
+        const previousChapterId = storyIds.get(story.previousSourceId);
+        if (!previousChapterId) {
+          throw new Error("Imported previous chapter mapping was lost");
+        }
+        record.previousChapterId = previousChapterId;
+      }
 
       for (const revision of story.revisions) {
         state.storyRevisions.push({

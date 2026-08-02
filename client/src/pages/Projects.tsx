@@ -18,6 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import {
   MAX_PROJECT_BACKUP_BYTES,
+  PROJECT_BACKUP_FORMAT,
+  PROJECT_BACKUP_VERSION,
   projectBackupSchema,
   summarizeProjectBackup,
   type ProjectBackup,
@@ -64,12 +66,12 @@ export default function Projects() {
         !parsed ||
         typeof parsed !== "object" ||
         !("format" in parsed) ||
-        parsed.format !== "samsarix-project"
+        parsed.format !== PROJECT_BACKUP_FORMAT
       ) {
         setImportError("Choose a Samsarix project backup JSON file.");
         return;
       }
-      if (!("version" in parsed) || parsed.version !== 1) {
+      if (!("version" in parsed) || parsed.version !== PROJECT_BACKUP_VERSION) {
         setImportError("This backup version is not supported yet.");
         return;
       }

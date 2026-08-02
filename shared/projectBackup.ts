@@ -6,7 +6,7 @@ export const MAX_PROJECT_BACKUP_BYTES = 7_000_000;
 export const MAX_PROJECT_BACKUP_JSON_CHARS = 6_000_000;
 
 const dateSchema = z
-  .union([z.date(), z.string().datetime()])
+  .union([z.date(), z.iso.datetime({ offset: true })])
   .transform(value => (value instanceof Date ? value : new Date(value)));
 const nullableDateSchema = dateSchema.nullable();
 const normalizedScoreSchema = z.number().finite().min(0).max(1);

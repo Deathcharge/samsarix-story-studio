@@ -2,7 +2,10 @@ import type { Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 import type { User } from "../drizzle/schema";
 import * as db from "../server/db";
-import { isTrustedRequestMetadata } from "../server/_core/requestSecurity";
+import {
+  isBackupImportRequestPath,
+  isTrustedRequestMetadata,
+} from "../server/_core/requestSecurity";
 import { getLocalDataPath } from "../server/localStore";
 import { appRouter } from "../server/routers";
 
@@ -162,6 +165,14 @@ describe("primary local story journey", () => {
     expect(backup.format).toBe("samsarix-project");
     expect(backup.stories).toHaveLength(2);
     expect(backup.stories[0].revisions).toHaveLength(2);
+    expect(backup.project).not.toHaveProperty("userId");
+    expect(backup.canon.every(entry => !("userId" in entry))).toBe(true);
+    expect(backup.stories.every(entry => !("userId" in entry))).toBe(true);
+    expect(
+      backup.stories.every(entry =>
+        entry.revisions.every(revision => !("userId" in revision))
+      )
+    ).toBe(true);
 
     const imported = await caller.projects.importBackup({ backup });
     expect(imported.projectId).not.toBe(project.id);
@@ -263,6 +274,19 @@ describe("local request boundary", () => {
       isTrustedRequestMetadata("127.0.0.1", "https://attacker.example")
     ).toBe(false);
     expect(isTrustedRequestMetadata("127.0.0.1", "null")).toBe(false);
+  });
+
+  it("grants the larger JSON limit only to an exact backup import procedure", () => {
+    expect(isBackupImportRequestPath("/projects.importBackup")).toBe(true);
+    expect(
+      isBackupImportRequestPath(
+        "/stories.list,/projects.importBackup,/projects.list"
+      )
+    ).toBe(true);
+    expect(isBackupImportRequestPath("/projects.importBackup.evil")).toBe(
+      false
+    );
+    expect(isBackupImportRequestPath("/stories.generate")).toBe(false);
   });
 });
 

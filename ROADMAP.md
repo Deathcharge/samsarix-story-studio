@@ -7,7 +7,7 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-story-studio` (ready).
 
-Current disposition: Versions 1.0 through 1.2 are merged product candidates with exact-head CI evidence; packaged distribution, a user pilot, and flagship adoption remain separate decisions.
+Current disposition: Versions 1.0 and 1.1 are merged product candidates. The 1.2 candidate and its command, browser, and CI evidence are recorded in `docs/PRODUCTIZATION.md` and its release pull request; merge, packaged distribution, a user pilot, and flagship adoption remain separate decisions.
 
 ## Stabilize the productized default
 

@@ -185,6 +185,7 @@ export async function importProjectBackup(
     }
 
     const storyIds = new Map<number, number>();
+    const revisionRows: InsertStoryRevision[] = [];
     for (const story of plan.stories) {
       const storyResult = await transaction.insert(stories).values({
         userId,
@@ -214,15 +215,13 @@ export async function importProjectBackup(
             )
           );
       }
-      if (story.revisions.length > 0) {
-        await transaction.insert(storyRevisions).values(
-          story.revisions.map(revision => ({
-            storyId,
-            userId,
-            ...revision,
-          }))
-        );
+      for (const revision of story.revisions) {
+        revisionRows.push({ storyId, userId, ...revision });
       }
+    }
+
+    if (revisionRows.length > 0) {
+      await transaction.insert(storyRevisions).values(revisionRows);
     }
 
     return {
