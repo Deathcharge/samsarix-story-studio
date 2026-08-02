@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
+import { CHAPTER_STATUS_LABELS } from "@shared/chapterPlanning";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -58,17 +59,19 @@ export default function Story() {
     { enabled: Boolean(ritualId), retry: false }
   );
   const story = storyQuery.data;
+  const contributions = normalizeContributions(story?.agentContributions);
+  const hasGenerationProcess = contributions.length > 0;
   const revisionsQuery = trpc.stories.revisions.useQuery(
     { storyId: story?.id ?? 0 },
     { enabled: Boolean(story?.id), retry: false }
   );
   const trajectoryQuery = trpc.stories.getUcfTrajectory.useQuery(
     { ritualId },
-    { enabled: Boolean(story?.ritualId), retry: false }
+    { enabled: Boolean(story?.ritualId) && hasGenerationProcess, retry: false }
   );
   const agentLogsQuery = trpc.stories.getAgentLogs.useQuery(
     { ritualId },
-    { enabled: Boolean(story?.ritualId), retry: false }
+    { enabled: Boolean(story?.ritualId) && hasGenerationProcess, retry: false }
   );
   const updateMutation = trpc.stories.update.useMutation({
     onSuccess: async () => {
@@ -77,6 +80,10 @@ export default function Story() {
         story
           ? utils.stories.revisions.invalidate({ storyId: story.id })
           : Promise.resolve(),
+        story?.projectId
+          ? utils.projects.get.invalidate({ id: story.projectId })
+          : Promise.resolve(),
+        story?.projectId ? utils.projects.list.invalidate() : Promise.resolve(),
       ]);
       setIsEditing(false);
     },
@@ -155,7 +162,6 @@ export default function Story() {
     );
   }
 
-  const contributions = normalizeContributions(story.agentContributions);
   const isDemo = contributions.some(
     contribution => contribution.provider === "demo"
   );
@@ -167,6 +173,7 @@ export default function Story() {
     contribution =>
       contribution.name === "kavach" && contribution.provider !== "demo"
   );
+  const hasManuscript = Boolean(story.content.trim());
   const handleDownload = () => {
     const blob = new Blob([story.content], {
       type: "text/markdown;charset=utf-8",
@@ -239,12 +246,15 @@ export default function Story() {
                   Chapter {story.chapterNumber ?? "—"}
                 </Badge>
               )}
+              <Badge variant="outline">
+                {CHAPTER_STATUS_LABELS[story.draftStatus]}
+              </Badge>
             </div>
             <h1 className="max-w-4xl text-4xl font-bold tracking-tight md:text-5xl">
               {story.title}
             </h1>
             <p className="max-w-3xl text-base leading-7 text-muted-foreground">
-              {story.prompt}
+              {story.synopsis || story.prompt}
             </p>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline">
@@ -270,7 +280,11 @@ export default function Story() {
               </Badge>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Button onClick={handleDownload} variant="outline">
+              <Button
+                onClick={handleDownload}
+                variant="outline"
+                disabled={!hasManuscript}
+              >
                 <Download className="mr-2 h-4 w-4" />
                 Download Markdown
               </Button>
@@ -279,16 +293,22 @@ export default function Story() {
                 onClick={() => setIsEditing(current => !current)}
               >
                 <Pencil className="mr-2 h-4 w-4" />
-                {isEditing ? "Cancel edit" : "Edit draft"}
+                {isEditing
+                  ? "Cancel edit"
+                  : hasManuscript
+                    ? "Edit draft"
+                    : "Start writing"}
               </Button>
-              <Button
-                onClick={() =>
-                  setLocation(`/generate?previousStoryId=${story.id}`)
-                }
-              >
-                <Zap className="mr-2 h-4 w-4" />
-                Continue story
-              </Button>
+              {hasManuscript ? (
+                <Button
+                  onClick={() =>
+                    setLocation(`/generate?previousStoryId=${story.id}`)
+                  }
+                >
+                  <Zap className="mr-2 h-4 w-4" />
+                  Continue story
+                </Button>
+              ) : null}
             </div>
             {updateMutation.error && (
               <p role="alert" className="text-sm text-destructive">
@@ -304,11 +324,19 @@ export default function Story() {
           </header>
 
           <Tabs defaultValue="story" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList
+              className={`grid w-full ${
+                hasGenerationProcess ? "grid-cols-4" : "grid-cols-2"
+              }`}
+            >
               <TabsTrigger value="story">Draft</TabsTrigger>
               <TabsTrigger value="history">History</TabsTrigger>
-              <TabsTrigger value="process">Process</TabsTrigger>
-              <TabsTrigger value="logs">Logs</TabsTrigger>
+              {hasGenerationProcess ? (
+                <>
+                  <TabsTrigger value="process">Process</TabsTrigger>
+                  <TabsTrigger value="logs">Logs</TabsTrigger>
+                </>
+              ) : null}
             </TabsList>
 
             <TabsContent value="story">
@@ -353,16 +381,12 @@ export default function Story() {
                   </div>
                   <div className="flex flex-wrap gap-3">
                     <Button
-                      disabled={
-                        !editTitle.trim() ||
-                        !editContent.trim() ||
-                        updateMutation.isPending
-                      }
+                      disabled={!editTitle.trim() || updateMutation.isPending}
                       onClick={() =>
                         updateMutation.mutate({
                           id: story.id,
                           title: editTitle.trim(),
-                          content: editContent.trim(),
+                          content: editContent,
                         })
                       }
                     >
@@ -383,13 +407,33 @@ export default function Story() {
                 </Card>
               ) : (
                 <Card className="story-prose p-6 md:p-10">
-                  {String(story.content)
-                    .split(/\n\s*\n/)
-                    .map((paragraph: string, index: number) =>
-                      paragraph.startsWith("# ") ? null : (
-                        <p key={index}>{paragraph}</p>
+                  {hasManuscript ? (
+                    String(story.content)
+                      .split(/\n\s*\n/)
+                      .map((paragraph: string, index: number) =>
+                        paragraph.startsWith("# ") ? null : (
+                          <p key={index}>{paragraph}</p>
+                        )
                       )
-                    )}
+                  ) : (
+                    <div className="py-16 text-center">
+                      <FileText className="mx-auto h-10 w-10 text-muted-foreground" />
+                      <h2 className="mt-4 text-xl font-bold">
+                        This chapter is ready to write
+                      </h2>
+                      <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
+                        The plan is saved without placeholder prose. Start with
+                        a blank manuscript whenever you are ready.
+                      </p>
+                      <Button
+                        className="mt-5"
+                        onClick={() => setIsEditing(true)}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Start writing
+                      </Button>
+                    </div>
+                  )}
                 </Card>
               )}
             </TabsContent>
@@ -452,8 +496,8 @@ export default function Story() {
                   </div>
                 ) : (
                   <p className="mt-6 text-sm text-muted-foreground">
-                    No revisions yet. The first save will preserve the generated
-                    draft here.
+                    No revisions yet. The first changed save will preserve the
+                    prior manuscript here, including a blank planned draft.
                   </p>
                 )}
                 {restoreMutation.error ? (
@@ -464,117 +508,121 @@ export default function Story() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="process">
-              <div className="grid gap-5 md:grid-cols-2">
-                <Card className="p-6">
-                  <h2 className="flex items-center gap-2 text-lg font-bold">
-                    <Brain className="h-5 w-5 text-primary" />
-                    Creative signal snapshot
-                  </h2>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Legacy heuristic values recorded by the workflow. They are
-                    not scientific measurements.
-                  </p>
-                  <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                    {[
-                      ["Harmony", story.ucfHarmony],
-                      ["Energy", story.ucfPrana],
-                      ["Focus", story.ucfDrishti],
-                      ["Friction", story.ucfKlesha],
-                      ["Resilience", story.ucfResilience],
-                      ["Scope", story.ucfZoom],
-                    ].map(([label, value]) => (
-                      <div
-                        key={String(label)}
-                        className="rounded-lg border border-border/50 p-3"
-                      >
-                        <dt className="text-muted-foreground">{label}</dt>
-                        <dd className="mt-1 font-mono">
-                          {Number(value).toFixed(2)}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </Card>
-                <Card className="p-6">
-                  <h2 className="text-lg font-bold">Agent contributions</h2>
-                  <div className="mt-5 space-y-3">
-                    {contributions.length > 0 ? (
-                      contributions.map(contribution => (
+            {hasGenerationProcess ? (
+              <TabsContent value="process">
+                <div className="grid gap-5 md:grid-cols-2">
+                  <Card className="p-6">
+                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                      <Brain className="h-5 w-5 text-primary" />
+                      Creative signal snapshot
+                    </h2>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Legacy heuristic values recorded by the workflow. They are
+                      not scientific measurements.
+                    </p>
+                    <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                      {[
+                        ["Harmony", story.ucfHarmony],
+                        ["Energy", story.ucfPrana],
+                        ["Focus", story.ucfDrishti],
+                        ["Friction", story.ucfKlesha],
+                        ["Resilience", story.ucfResilience],
+                        ["Scope", story.ucfZoom],
+                      ].map(([label, value]) => (
                         <div
-                          key={contribution.name}
+                          key={String(label)}
                           className="rounded-lg border border-border/50 p-3"
                         >
-                          <div className="flex items-center justify-between gap-3">
-                            <strong className="capitalize">
-                              {contribution.name}
-                            </strong>
-                            {contribution.provider && (
-                              <span className="status-pill">
-                                {contribution.provider}
-                              </span>
+                          <dt className="text-muted-foreground">{label}</dt>
+                          <dd className="mt-1 font-mono">
+                            {Number(value).toFixed(2)}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </Card>
+                  <Card className="p-6">
+                    <h2 className="text-lg font-bold">Agent contributions</h2>
+                    <div className="mt-5 space-y-3">
+                      {contributions.length > 0 ? (
+                        contributions.map(contribution => (
+                          <div
+                            key={contribution.name}
+                            className="rounded-lg border border-border/50 p-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <strong className="capitalize">
+                                {contribution.name}
+                              </strong>
+                              {contribution.provider && (
+                                <span className="status-pill">
+                                  {contribution.provider}
+                                </span>
+                              )}
+                            </div>
+                            {contribution.role && (
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                {contribution.role}
+                              </p>
                             )}
                           </div>
-                          {contribution.role && (
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              {contribution.role}
-                            </p>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        No contribution metadata was recorded.
-                      </p>
-                    )}
-                  </div>
-                </Card>
-                {trajectoryQuery.data && trajectoryQuery.data.length > 0 && (
-                  <Card className="p-6 md:col-span-2">
-                    <h2 className="text-lg font-bold">Recorded trajectory</h2>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {trajectoryQuery.data.length} workflow snapshots are
-                      available from the legacy engine.
-                    </p>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No contribution metadata was recorded.
+                        </p>
+                      )}
+                    </div>
                   </Card>
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="logs">
-              <div className="space-y-4">
-                {agentLogsQuery.isLoading ? (
-                  <Card className="p-8 text-center text-muted-foreground">
-                    Loading logs…
-                  </Card>
-                ) : agentLogsQuery.data && agentLogsQuery.data.length > 0 ? (
-                  agentLogsQuery.data.map(log => (
-                    <Card key={log.id} className="p-6">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl" aria-hidden="true">
-                          {log.agentSymbol}
-                        </span>
-                        <div>
-                          <h2 className="font-bold">{log.agentName}</h2>
-                          <p className="text-sm text-muted-foreground">
-                            {log.role}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="mt-4 whitespace-pre-wrap border-t border-border/50 pt-4 text-sm leading-6">
-                        {log.content}
+                  {trajectoryQuery.data && trajectoryQuery.data.length > 0 && (
+                    <Card className="p-6 md:col-span-2">
+                      <h2 className="text-lg font-bold">Recorded trajectory</h2>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {trajectoryQuery.data.length} workflow snapshots are
+                        available from the legacy engine.
                       </p>
                     </Card>
-                  ))
-                ) : (
-                  <Card className="p-10 text-center">
-                    <p className="text-muted-foreground">
-                      No detailed agent logs were stored for this draft.
-                    </p>
-                  </Card>
-                )}
-              </div>
-            </TabsContent>
+                  )}
+                </div>
+              </TabsContent>
+            ) : null}
+
+            {hasGenerationProcess ? (
+              <TabsContent value="logs">
+                <div className="space-y-4">
+                  {agentLogsQuery.isLoading ? (
+                    <Card className="p-8 text-center text-muted-foreground">
+                      Loading logs…
+                    </Card>
+                  ) : agentLogsQuery.data && agentLogsQuery.data.length > 0 ? (
+                    agentLogsQuery.data.map(log => (
+                      <Card key={log.id} className="p-6">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl" aria-hidden="true">
+                            {log.agentSymbol}
+                          </span>
+                          <div>
+                            <h2 className="font-bold">{log.agentName}</h2>
+                            <p className="text-sm text-muted-foreground">
+                              {log.role}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="mt-4 whitespace-pre-wrap border-t border-border/50 pt-4 text-sm leading-6">
+                          {log.content}
+                        </p>
+                      </Card>
+                    ))
+                  ) : (
+                    <Card className="p-10 text-center">
+                      <p className="text-muted-foreground">
+                        No detailed agent logs were stored for this draft.
+                      </p>
+                    </Card>
+                  )}
+                </div>
+              </TabsContent>
+            ) : null}
           </Tabs>
         </article>
       </main>

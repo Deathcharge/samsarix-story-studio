@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CHAPTER_STATUSES } from "./chapterPlanning";
 
 export const PROJECT_BACKUP_FORMAT = "samsarix-project" as const;
 export const PROJECT_BACKUP_VERSION = 1 as const;
@@ -43,7 +44,7 @@ const revisionSchema = z.object({
   id: z.number().int().positive(),
   storyId: z.number().int().positive(),
   title: nonBlankString(255),
-  content: nonBlankString(500_000),
+  content: z.string().max(500_000),
   reason: nonBlankString(64),
   createdAt: dateSchema,
 });
@@ -53,7 +54,7 @@ const storySchema = z.object({
   projectId: z.number().int().positive(),
   title: nonBlankString(255),
   prompt: nonBlankString(4_000),
-  content: nonBlankString(500_000),
+  content: z.string().max(500_000),
   ritualId: nonBlankString(128),
   wordCount: z.number().int().nonnegative().max(500_000),
   qualityScore: normalizedScoreSchema,
@@ -70,6 +71,8 @@ const storySchema = z.object({
   seriesId: nonBlankString(128).nullable(),
   chapterNumber: z.number().int().min(1).max(10_000).nullable(),
   previousChapterId: z.number().int().positive().nullable(),
+  draftStatus: z.enum(CHAPTER_STATUSES).default("drafting"),
+  synopsis: z.string().max(4_000).nullable().default(null),
   tags: z.string().max(8_000).nullable().optional(),
   isFavorite: z.union([z.literal(0), z.literal(1)]).optional(),
   deletedAt: nullableDateSchema.optional(),

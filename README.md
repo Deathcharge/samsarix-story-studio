@@ -28,12 +28,13 @@ Set `SAMSARIX_DATA_FILE` to choose another location. Existing default data at `.
 ## Primary workflow
 
 1. Create a project with a premise, genre, and optional style guidance.
-2. Add characters, locations, factions, items, or lore to its canon. Entries can be always-on or activated by names and phrases.
-3. Draft a chapter. Before generation, review the selected canon entries and approximate context-token count; manually include any additional entry.
-4. Choose a preset or enable up to seven agent roles, then create a clearly labeled demo or provider-backed draft.
-5. Edit the chapter directly. Every save keeps the prior title and manuscript as a recoverable revision; the newest 50 snapshots per chapter are retained.
-6. Continue the manuscript, reopen any draft from the archive, export combined Markdown, or download a versioned project JSON backup.
-7. Restore a backup from the Projects page. The file is validated first and imported as a separate project, so existing work is never overwritten.
+2. Add empty chapter plans with working titles and synopsis notes, track each as planned, drafting, revising, or complete, and reorder the manuscript with drag or accessible move buttons.
+3. Add characters, locations, factions, items, or lore to its canon. Entries can be always-on or activated by names and phrases.
+4. Write a planned chapter manually, or draft one in the studio. Before generation, review the selected canon entries and approximate context-token count; manually include any additional entry.
+5. Choose a preset or enable up to seven agent roles, then create a clearly labeled demo or provider-backed draft.
+6. Edit the chapter directly. Every changed save keeps the prior title and manuscript—even a blank planned draft—as a recoverable revision; the newest 50 snapshots per chapter are retained.
+7. Continue the manuscript, reopen any planned or drafted chapter from the archive, export combined Markdown, or download a versioned project JSON backup.
+8. Restore a backup from the Projects page. The file is validated first and imported as a separate project, so existing work is never overwritten.
 
 Standalone drafts remain supported when a project would be unnecessary.
 
@@ -108,7 +109,7 @@ The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint expo
 
 ## Scope and known limitations
 
-The release intentionally does not include streaming/cancellation, chapter reordering, scene planning, public sharing, PDF/EPUB export, billing, or collaboration. Archive search is client-side and suited to a personal library. Backup restore always creates a new project; merging into or replacing an existing project is intentionally unsupported. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
+The release intentionally does not include streaming/cancellation, scene-level cards, public sharing, PDF/EPUB export, billing, or collaboration. Chapter planning is currently manuscript-level: a chapter has one synopsis and status rather than an ordered list of scenes. Archive search is client-side and suited to a personal library. Backup restore always creates a new project; merging into or replacing an existing project is intentionally unsupported. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
 
 Legacy component examples remain outside the active TypeScript and runtime graph so historical UI source is preserved without making it part of the release contract. Incomplete QoL helpers and private-platform runtime adapters were removed. Future cleanup is tracked in [the productization record](docs/PRODUCTIZATION.md).
 

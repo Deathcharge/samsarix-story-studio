@@ -9,6 +9,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Link } from "wouter";
+import { CHAPTER_STATUS_LABELS } from "@shared/chapterPlanning";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -23,7 +24,9 @@ export default function Archive() {
     const needle = query.trim().toLowerCase();
     if (!needle) return stories;
     return stories.filter(story =>
-      `${story.title} ${story.prompt}`.toLowerCase().includes(needle)
+      `${story.title} ${story.synopsis ?? ""} ${story.prompt}`
+        .toLowerCase()
+        .includes(needle)
     );
   }, [query, stories]);
 
@@ -67,7 +70,7 @@ export default function Archive() {
                 Story archive
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Reopen, continue, or export every saved draft.
+                Reopen every planned, drafted, or revised chapter.
               </p>
             </div>
             <Button asChild>
@@ -85,7 +88,7 @@ export default function Archive() {
                 type="search"
                 value={query}
                 onChange={event => setQuery(event.target.value)}
-                placeholder="Search titles and premises"
+                placeholder="Search titles, plans, and premises"
                 className="pl-9"
                 aria-label="Search story archive"
               />
@@ -141,13 +144,16 @@ export default function Archive() {
                         {story.title}
                       </h2>
                       <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">
-                        {story.prompt}
+                        {story.synopsis || story.prompt}
                       </p>
                     </div>
                     <div className="mt-6 flex flex-wrap gap-2">
                       <Badge variant="outline">
                         <FileText className="mr-1 h-3 w-3" />
                         {story.wordCount} words
+                      </Badge>
+                      <Badge variant="outline">
+                        {CHAPTER_STATUS_LABELS[story.draftStatus]}
                       </Badge>
                     </div>
                     <div className="mt-6 flex items-center justify-between border-t border-border/50 pt-4 text-xs text-muted-foreground">

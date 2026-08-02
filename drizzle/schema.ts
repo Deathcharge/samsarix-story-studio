@@ -7,6 +7,7 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/mysql-core";
+import { CHAPTER_STATUSES } from "../shared/chapterPlanning";
 
 /**
  * Core user table backing auth flow.
@@ -80,6 +81,10 @@ export const stories = mysqlTable("stories", {
   seriesId: varchar("seriesId", { length: 64 }),
   chapterNumber: int("chapterNumber"),
   previousChapterId: int("previousChapterId"),
+  draftStatus: mysqlEnum("draftStatus", CHAPTER_STATUSES)
+    .default("drafting")
+    .notNull(),
+  synopsis: text("synopsis"),
   // Reserved legacy organization fields; not exposed by the local MVP.
   collectionId: int("collectionId"),
   tags: text("tags"), // JSON array of tag strings

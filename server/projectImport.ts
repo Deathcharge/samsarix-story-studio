@@ -75,6 +75,8 @@ export function prepareProjectImport(backup: ProjectBackup): ProjectImportPlan {
           updatedAt: story.updatedAt,
           seriesId,
           chapterNumber: story.chapterNumber,
+          draftStatus: story.draftStatus,
+          synopsis: story.synopsis,
           collectionId: null,
           tags: story.tags ?? null,
           isFavorite: story.isFavorite ?? 0,

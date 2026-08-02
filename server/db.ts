@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
@@ -17,6 +18,7 @@ import {
   users,
 } from "../drizzle/schema";
 import type { ProjectBackup } from "../shared/projectBackup";
+import type { ChapterStatus } from "../shared/chapterPlanning";
 import * as localStore from "./localStore";
 import { prepareProjectImport } from "./projectImport";
 
@@ -160,6 +162,171 @@ export async function updateProject(
     .set(data)
     .where(and(eq(projects.id, id), eq(projects.userId, userId)));
   return result[0].affectedRows > 0;
+}
+
+export async function createPlannedChapter(input: {
+  projectId: number;
+  userId: number;
+  title: string;
+  synopsis: string | null;
+}) {
+  const ritualId = `plan_${randomUUID()}`;
+  if (getStorageMode() === "local-file") {
+    return localStore.createPlannedChapter({ ...input, ritualId });
+  }
+
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const project = await transaction
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(eq(projects.id, input.projectId), eq(projects.userId, input.userId))
+      )
+      .limit(1);
+    if (!project[0]) return null;
+
+    const existingStories = await transaction
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.projectId, input.projectId),
+          eq(stories.userId, input.userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .orderBy(asc(stories.chapterNumber), asc(stories.createdAt));
+    const inserted = await transaction.insert(stories).values({
+      userId: input.userId,
+      projectId: input.projectId,
+      title: input.title,
+      prompt: input.synopsis || `Planned chapter: ${input.title}`,
+      content: "",
+      ritualId,
+      wordCount: 0,
+      qualityScore: 0,
+      ethicalApproval: 1,
+      ucfHarmony: 0,
+      ucfPrana: 0,
+      ucfDrishti: 0,
+      ucfKlesha: 0,
+      ucfResilience: 0,
+      ucfZoom: 0,
+      agentContributions: "[]",
+      seriesId: `project_${input.projectId}`,
+      draftStatus: "planned",
+      synopsis: input.synopsis,
+    });
+    const storyId = Number(inserted[0].insertId);
+    const orderedIds = [...existingStories.map(story => story.id), storyId];
+    for (const [index, id] of orderedIds.entries()) {
+      await transaction
+        .update(stories)
+        .set({
+          seriesId: `project_${input.projectId}`,
+          chapterNumber: index + 1,
+          previousChapterId: index === 0 ? null : orderedIds[index - 1],
+        })
+        .where(eq(stories.id, id));
+    }
+    await transaction
+      .update(projects)
+      .set({ updatedAt: new Date() })
+      .where(eq(projects.id, input.projectId));
+    const created = await transaction
+      .select()
+      .from(stories)
+      .where(eq(stories.id, storyId))
+      .limit(1);
+    return created[0] ?? null;
+  });
+}
+
+export async function updateStoryPlanning(
+  id: number,
+  projectId: number,
+  userId: number,
+  data: { draftStatus: ChapterStatus; synopsis: string | null }
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateStoryPlanning(id, projectId, userId, data);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const result = await transaction
+      .update(stories)
+      .set(data)
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.projectId, projectId),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      );
+    if (result[0].affectedRows === 0) return false;
+    await transaction
+      .update(projects)
+      .set({ updatedAt: new Date() })
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
+    return true;
+  });
+}
+
+export async function reorderProjectStories(
+  projectId: number,
+  userId: number,
+  orderedStoryIds: number[]
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.reorderProjectStories(projectId, userId, orderedStoryIds);
+  }
+
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const project = await transaction
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1);
+    if (!project[0]) return false;
+
+    const projectStories = await transaction
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.projectId, projectId),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      );
+    if (
+      projectStories.length !== orderedStoryIds.length ||
+      new Set(orderedStoryIds).size !== orderedStoryIds.length
+    ) {
+      return false;
+    }
+    const projectStoryIds = new Set(projectStories.map(story => story.id));
+    if (orderedStoryIds.some(id => !projectStoryIds.has(id))) return false;
+
+    for (const [index, id] of orderedStoryIds.entries()) {
+      await transaction
+        .update(stories)
+        .set({
+          seriesId: `project_${projectId}`,
+          chapterNumber: index + 1,
+          previousChapterId: index === 0 ? null : orderedStoryIds[index - 1],
+        })
+        .where(eq(stories.id, id));
+    }
+    await transaction
+      .update(projects)
+      .set({ updatedAt: new Date() })
+      .where(eq(projects.id, projectId));
+    return true;
+  });
 }
 
 export async function importProjectBackup(
@@ -314,7 +481,16 @@ export async function deleteCanonEntry(
 
 export async function createStory(story: InsertStory) {
   if (getStorageMode() === "local-file") return localStore.createStory(story);
-  return (await requireDb()).insert(stories).values(story);
+  const connection = await requireDb();
+  if (!story.projectId) return connection.insert(stories).values(story);
+  return connection.transaction(async transaction => {
+    const result = await transaction.insert(stories).values(story);
+    await transaction
+      .update(projects)
+      .set({ updatedAt: new Date() })
+      .where(eq(projects.id, story.projectId!));
+    return result;
+  });
 }
 
 export async function getStoryById(id: number, userId: number) {
@@ -407,7 +583,7 @@ export async function updateStory(
 export async function updateStoryWithRevision(
   id: number,
   userId: number,
-  data: Pick<InsertStory, "title" | "content" | "wordCount">,
+  data: Pick<InsertStory, "title" | "content" | "wordCount" | "draftStatus">,
   reason: string
 ) {
   if (getStorageMode() === "local-file") {
@@ -451,6 +627,14 @@ export async function updateStoryWithRevision(
       );
     }
     await transaction.update(stories).set(data).where(eq(stories.id, id));
+    if (story.projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(eq(projects.id, story.projectId), eq(projects.userId, userId))
+        );
+    }
     return true;
   });
 }
@@ -537,6 +721,14 @@ export async function restoreStoryRevision(
         wordCount: revision.content.trim().split(/\s+/).filter(Boolean).length,
       })
       .where(eq(stories.id, storyId));
+    if (story.projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(eq(projects.id, story.projectId), eq(projects.userId, userId))
+        );
+    }
     return true;
   });
 }
