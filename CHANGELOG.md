@@ -2,6 +2,13 @@
 
 All notable changes to Samsarix Story Studio are documented here.
 
+## 1.5.0 — 2026-08-01
+
+- Added ownership-safe generation into an existing blank chapter plan, preserving its stable story ID, working title, synopsis, manuscript position, series, and continuity links.
+- Added dedicated “Draft this plan” and “Draft with studio” actions plus targeted studio onboarding that derives a bounded prompt from the chapter synopsis and prior chapter ending.
+- Prevented generated or manually drafted chapters from being overwritten, rejected conflicting continuation/target inputs, and kept imported blank chapter plans eligible for drafting.
+- Extended behavioral coverage for in-place completion, duplicate prevention, cross-user isolation, imported-plan compatibility, continuity, and cancellation without plan mutation.
+
 ## 1.4.0 — 2026-08-01
 
 - Replaced timer-simulated generation progress with durable jobs and live server-sent stage events, plus status polling when the event stream is unavailable.

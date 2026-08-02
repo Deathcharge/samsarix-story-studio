@@ -7,6 +7,7 @@ import {
   Loader2,
   Plus,
   Save,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -338,6 +339,14 @@ export function ChapterBoard({
                     {story.wordCount.toLocaleString()} words · edited{" "}
                     {new Date(story.updatedAt).toLocaleDateString()}
                   </p>
+                  {story.wordCount === 0 ? (
+                    <Button asChild size="sm" className="mt-4">
+                      <Link href={`/generate?targetStoryId=${story.id}`}>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Draft this plan
+                      </Link>
+                    </Button>
+                  ) : null}
                   <PlanningEditor
                     chapter={story}
                     disabled={

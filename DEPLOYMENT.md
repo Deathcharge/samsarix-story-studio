@@ -63,7 +63,7 @@ Release 1.2 adds project-backup import without a schema migration. Import reques
 
 Release 1.3 adds migration `0006_cynical_squirrel_girl.sql` for chapter synopsis and draft-status fields. Apply it before starting 1.3 against an existing MySQL database. The default local-file adapter upgrades version-1 or version-2 archives to version 3 on first load. Back up either storage profile before upgrading when rollback matters.
 
-Release 1.4 adds migration `0007_woozy_quasimodo.sql` for content-free generation-job metadata. Apply it before starting 1.4 against an existing MySQL database. The default local-file adapter upgrades archives to version 4 on first load. Jobs left queued, running, or cancelling by a previous process are marked interrupted at startup; prompt and manuscript text are not stored in job records.
+Release 1.4 adds migrations `0007_woozy_quasimodo.sql` and `0008_acoustic_emma_frost.sql` for content-free generation-job metadata, explicit terminal stages, and lifecycle lookup indexing. Apply them before starting 1.4 or later against an existing MySQL database. The default local-file adapter upgrades archives to version 4 on first load. Jobs left queued, running, or cancelling by a previous process are marked interrupted at startup; prompt and manuscript text are not stored in job records. Release 1.5 changes planned-chapter behavior without adding a storage migration.
 
 ## Health and shutdown
 

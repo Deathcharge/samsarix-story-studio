@@ -53,10 +53,12 @@ export default function Generate() {
   const continuation = useMemo(getContinuationParameters, []);
   const initialProjectId = Number(continuation.get("projectId")) || null;
   const previousStoryId = Number(continuation.get("previousStoryId")) || null;
+  const targetStoryId = Number(continuation.get("targetStoryId")) || null;
   const [prompt, setPrompt] = useState("");
   const [projectId, setProjectId] = useState<number | null>(initialProjectId);
   const [selectedCanonIds, setSelectedCanonIds] = useState<number[]>([]);
   const [continuationApplied, setContinuationApplied] = useState(false);
+  const [targetApplied, setTargetApplied] = useState(false);
   const [generationJob, setGenerationJob] = useState<GenerationJob | null>(
     null
   );
@@ -92,6 +94,10 @@ export default function Generate() {
   const continuationQuery = trpc.stories.prepareContinuation.useQuery(
     { previousStoryId: previousStoryId ?? 0 },
     { enabled: Boolean(previousStoryId), retry: false }
+  );
+  const plannedChapterQuery = trpc.stories.preparePlannedChapter.useQuery(
+    { targetStoryId: targetStoryId ?? 0 },
+    { enabled: Boolean(targetStoryId), retry: false }
   );
   const deferredPrompt = useDeferredValue(prompt);
   const contextQuery = trpc.projects.previewContext.useQuery(
@@ -185,12 +191,21 @@ export default function Generate() {
     setContinuationApplied(true);
   }, [continuationApplied, continuationQuery.data]);
 
+  useEffect(() => {
+    if (!plannedChapterQuery.data || targetApplied) return;
+    setPrompt(plannedChapterQuery.data.prompt);
+    setProjectId(plannedChapterQuery.data.projectId);
+    setTargetApplied(true);
+  }, [plannedChapterQuery.data, targetApplied]);
+
   const trimmedPrompt = prompt.trim();
+  const targetReady = !targetStoryId || Boolean(plannedChapterQuery.data);
   const isGenerating = Boolean(
     generationJob && !TERMINAL_STATUSES.has(generationJob.status)
   );
   const canGenerate =
     Boolean(status) &&
+    targetReady &&
     trimmedPrompt.length >= 10 &&
     !isGenerating &&
     !generateMutation.isPending;
@@ -214,6 +229,7 @@ export default function Generate() {
       projectId: projectId ?? undefined,
       selectedCanonIds,
       previousChapterId: previousStoryId ?? undefined,
+      targetStoryId: targetStoryId ?? undefined,
     });
   };
 
@@ -260,13 +276,16 @@ export default function Generate() {
             <div>
               <p className="eyebrow">Writing workspace</p>
               <h1 className="mt-2 text-3xl font-bold md:text-4xl">
-                {previousStoryId
-                  ? "Draft the next chapter"
-                  : "Turn a premise into a complete draft"}
+                {targetStoryId
+                  ? "Draft the planned chapter"
+                  : previousStoryId
+                    ? "Draft the next chapter"
+                    : "Turn a premise into a complete draft"}
               </h1>
               <p className="mt-2 max-w-2xl text-muted-foreground">
-                Shape the premise, choose a workflow, and keep the result in
-                your local archive.
+                {plannedChapterQuery.data
+                  ? `Complete “${plannedChapterQuery.data.title}” in place without changing its manuscript position.`
+                  : "Shape the premise, choose a workflow, and keep the result in your local archive."}
               </p>
             </div>
           </div>
@@ -305,6 +324,24 @@ export default function Generate() {
             </Card>
           )}
 
+          {plannedChapterQuery.error && (
+            <Card
+              className="space-y-4 border-destructive/30 p-6 text-center"
+              role="alert"
+            >
+              <CircleAlert className="mx-auto h-8 w-8 text-destructive" />
+              <div>
+                <strong>Planned chapter unavailable</strong>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {plannedChapterQuery.error.message}
+                </p>
+              </div>
+              <Button asChild variant="outline">
+                <Link href="/projects">Back to projects</Link>
+              </Button>
+            </Card>
+          )}
+
           <Card className="space-y-6 border-primary/20 p-6 md:p-8">
             <div className="space-y-2">
               <label
@@ -323,7 +360,7 @@ export default function Generate() {
                   setProjectId(Number(event.target.value) || null);
                   setSelectedCanonIds([]);
                 }}
-                disabled={Boolean(previousStoryId)}
+                disabled={Boolean(previousStoryId || targetStoryId)}
                 className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               >
                 <option value="" className="bg-background">
@@ -358,7 +395,7 @@ export default function Generate() {
                   generateMutation.reset();
                 }}
                 rows={6}
-                disabled={isGenerating}
+                disabled={isGenerating || !targetReady}
                 className="resize-y text-base leading-relaxed"
                 maxLength={1_000}
                 aria-describedby="prompt-help"
@@ -601,7 +638,7 @@ export default function Generate() {
               </Card>
             )}
 
-          {!isGenerating && !previousStoryId && (
+          {!isGenerating && !previousStoryId && !targetStoryId && (
             <section aria-labelledby="prompt-examples" className="space-y-3">
               <h2
                 id="prompt-examples"

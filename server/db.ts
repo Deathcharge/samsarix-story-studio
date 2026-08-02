@@ -23,6 +23,10 @@ import type { ProjectBackup } from "../shared/projectBackup";
 import type { ChapterStatus } from "../shared/chapterPlanning";
 import { isTerminalGenerationStatus } from "../shared/generationLifecycle";
 import * as localStore from "./localStore";
+import {
+  isDraftablePlannedChapter,
+  type PlannedChapterCompletion,
+} from "./plannedChapter";
 import { prepareProjectImport } from "./projectImport";
 
 let database: ReturnType<typeof drizzle> | null = null;
@@ -410,6 +414,59 @@ export async function updateStoryPlanning(
       .set({ updatedAt: new Date() })
       .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
     return true;
+  });
+}
+
+export async function completePlannedChapter(
+  id: number,
+  userId: number,
+  data: PlannedChapterCompletion
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.completePlannedChapter(id, userId, data);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const existing = await transaction
+      .select()
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1);
+    const story = existing[0];
+    if (!story || !isDraftablePlannedChapter(story)) return null;
+
+    const now = new Date();
+    const updated = await transaction
+      .update(stories)
+      .set({ ...data, updatedAt: now })
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.userId, userId),
+          eq(stories.wordCount, 0),
+          eq(stories.content, ""),
+          isNull(stories.deletedAt)
+        )
+      );
+    if (updated[0].affectedRows === 0) return null;
+    await transaction
+      .update(projects)
+      .set({ updatedAt: now })
+      .where(
+        and(eq(projects.id, story.projectId!), eq(projects.userId, userId))
+      );
+    const completed = await transaction
+      .select()
+      .from(stories)
+      .where(and(eq(stories.id, id), eq(stories.userId, userId)))
+      .limit(1);
+    return completed[0] ?? null;
   });
 }
 

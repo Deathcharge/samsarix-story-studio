@@ -24,6 +24,10 @@ import {
   type ChapterStatus,
 } from "../shared/chapterPlanning";
 import type { ProjectImportPlan } from "./projectImport";
+import {
+  isDraftablePlannedChapter,
+  type PlannedChapterCompletion,
+} from "./plannedChapter";
 
 type LocalState = {
   version: 4;
@@ -612,6 +616,27 @@ export async function updateStoryPlanning(
     );
     if (project) project.updatedAt = now;
     return true;
+  });
+}
+
+export async function completePlannedChapter(
+  id: number,
+  userId: number,
+  data: PlannedChapterCompletion
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry => entry.id === id && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story || !isDraftablePlannedChapter(story)) return null;
+
+    const now = new Date();
+    Object.assign(story, data, { updatedAt: now });
+    const project = state.projects.find(
+      entry => entry.id === story.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return clone(story);
   });
 }
 

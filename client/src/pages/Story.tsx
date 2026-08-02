@@ -308,6 +308,15 @@ export default function Story() {
                   <Zap className="mr-2 h-4 w-4" />
                   Continue story
                 </Button>
+              ) : story.projectId ? (
+                <Button
+                  onClick={() =>
+                    setLocation(`/generate?targetStoryId=${story.id}`)
+                  }
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Draft with studio
+                </Button>
               ) : null}
             </div>
             {updateMutation.error && (
