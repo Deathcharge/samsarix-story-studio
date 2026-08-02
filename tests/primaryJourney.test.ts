@@ -354,6 +354,14 @@ describe("primary local story journey", () => {
     expect(
       (await caller.stories.getById({ id: restored.stories[0].id }))?.content
     ).toBe("");
+    expect(
+      await caller.stories.preparePlannedChapter({
+        targetStoryId: restored.stories[0].id,
+      })
+    ).toMatchObject({
+      targetStoryId: restored.stories[0].id,
+      projectId: imported.projectId,
+    });
 
     const owner = await db.getLocalUser();
     const otherCaller = await createCaller({
@@ -371,6 +379,149 @@ describe("primary local story journey", () => {
         synopsis: "Overwrite someone else's plan",
       })
     ).rejects.toThrow("Project not found");
+  });
+
+  it("drafts planned chapters in place without duplicating or breaking continuity", async () => {
+    const owner = await db.getLocalUser();
+    const caller = await createCaller(owner);
+    const project = await caller.projects.create({
+      title: "The Quiet Astrarium",
+      premise: "An astronomer finds a constellation that records private vows.",
+      genre: "speculative mystery",
+    });
+    const first = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "The Unlisted Star",
+      synopsis: "Sena discovers a star missing from every official chart.",
+    });
+    const second = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "A Map of Promises",
+      synopsis: "The observatory staff realize the star repeats their secrets.",
+    });
+
+    const preparedFirst = await caller.stories.preparePlannedChapter({
+      targetStoryId: first.id,
+    });
+    expect(preparedFirst).toMatchObject({
+      targetStoryId: first.id,
+      projectId: project.id,
+      previousChapterId: null,
+    });
+    expect(preparedFirst.prompt).toContain("The Unlisted Star");
+
+    const generatedFirst = await caller.stories.generate({
+      targetStoryId: first.id,
+      projectId: project.id,
+      prompt: preparedFirst.prompt,
+      preset: "structured",
+    });
+    expect(generatedFirst).toMatchObject({
+      storyId: first.id,
+      title: "The Unlisted Star",
+      projectId: project.id,
+    });
+
+    let workspace = await caller.projects.get({ id: project.id });
+    expect(workspace.stories).toHaveLength(2);
+    expect(workspace.stories.map(story => story.id)).toEqual([
+      first.id,
+      second.id,
+    ]);
+    expect(workspace.stories[0]).toMatchObject({
+      ritualId: generatedFirst.ritualId,
+      draftStatus: "drafting",
+      chapterNumber: 1,
+      previousChapterId: null,
+    });
+    expect(workspace.stories[0].wordCount).toBeGreaterThan(500);
+    expect(workspace.stories[1].previousChapterId).toBe(first.id);
+
+    await expect(
+      caller.stories.generate({
+        targetStoryId: first.id,
+        projectId: project.id,
+        prompt: preparedFirst.prompt,
+        preset: "structured",
+      })
+    ).rejects.toThrow("already has a draft");
+    await expect(
+      caller.stories.generate({
+        targetStoryId: second.id,
+        previousChapterId: first.id,
+        prompt: preparedFirst.prompt,
+        preset: "structured",
+      })
+    ).rejects.toThrow("either a planned chapter target or a new continuation");
+
+    const otherCaller = await createCaller({
+      ...owner,
+      id: 995,
+      openId: "planned-chapter-intruder",
+      name: "Planned Chapter Intruder",
+      role: "user",
+    });
+    await expect(
+      otherCaller.stories.preparePlannedChapter({ targetStoryId: second.id })
+    ).rejects.toThrow("Planned chapter not found");
+
+    const preparedSecond = await caller.stories.preparePlannedChapter({
+      targetStoryId: second.id,
+    });
+    expect(preparedSecond.previousChapterId).toBe(first.id);
+    expect(preparedSecond.prompt).toContain("chapter 2");
+    expect(preparedSecond.prompt).toContain("The Quiet Astrarium");
+    const generatedSecond = await caller.stories.generate({
+      targetStoryId: second.id,
+      projectId: project.id,
+      prompt: preparedSecond.prompt,
+      preset: "structured",
+    });
+    expect(generatedSecond.storyId).toBe(second.id);
+
+    workspace = await caller.projects.get({ id: project.id });
+    expect(workspace.stories).toHaveLength(2);
+    expect(workspace.stories[1]).toMatchObject({
+      id: second.id,
+      previousChapterId: first.id,
+      chapterNumber: 2,
+      draftStatus: "drafting",
+    });
+
+    const whitespace = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "Whitespace Legacy",
+      synopsis: "A compatibility case for an older manually cleared plan.",
+    });
+    await caller.stories.update({
+      id: whitespace.id,
+      title: whitespace.title,
+      content: "   ",
+    });
+    expect(
+      (await caller.projects.get({ id: project.id })).stories.find(
+        story => story.id === whitespace.id
+      )
+    ).toMatchObject({ canDraftWithStudio: false, wordCount: 0 });
+    expect(await caller.stories.getById({ id: whitespace.id })).toMatchObject({
+      canDraftWithStudio: false,
+      content: "   ",
+    });
+    await expect(
+      caller.stories.preparePlannedChapter({ targetStoryId: whitespace.id })
+    ).rejects.toThrow("already has a draft");
+
+    const dangling = await caller.projects.createChapterPlan({
+      projectId: project.id,
+      title: "The Missing Predecessor",
+      synopsis: "The chapter should not prepare against a broken link.",
+    });
+    await db.updateStory(dangling.id, owner.id, {
+      previousChapterId: 999_999,
+    });
+    await expect(
+      caller.stories.preparePlannedChapter({ targetStoryId: dangling.id })
+    ).rejects.toThrow("Previous chapter not found");
   });
 
   it("rejects prompts below the minimum before generation", async () => {
@@ -428,11 +579,22 @@ describe("primary local story journey", () => {
     try {
       const owner = await db.getLocalUser();
       const caller = await createCaller(owner);
+      const project = await caller.projects.create({
+        title: "The Drowned Signal",
+        premise: "A harbor pilot hears a second city beneath the bay.",
+      });
+      const plan = await caller.projects.createChapterPlan({
+        projectId: project.id,
+        title: "The Answering Foghorn",
+        synopsis: "The pilot follows the impossible reply beyond the seawall.",
+      });
       const beforeCount = (await caller.stories.list()).length;
       const started = await caller.stories.startGeneration({
         prompt:
           "A harbor pilot hears a second city answering every foghorn from beneath the bay",
         preset: "balanced",
+        projectId: project.id,
+        targetStoryId: plan.id,
       });
       await expect(
         caller.stories.startGeneration({
@@ -471,6 +633,13 @@ describe("primary local story journey", () => {
         cancelRequested: 1,
       });
       expect((await caller.stories.list()).length).toBe(beforeCount);
+      expect(await caller.stories.getById({ id: plan.id })).toMatchObject({
+        id: plan.id,
+        ritualId: plan.ritualId,
+        content: "",
+        wordCount: 0,
+        draftStatus: "planned",
+      });
       expect(await caller.stories.activeGeneration()).toBeNull();
     } finally {
       if (originalDelay === undefined) delete process.env.DEMO_STAGE_DELAY_MS;

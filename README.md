@@ -1,6 +1,6 @@
 # Samsarix Story Studio
 
-Samsarix Story Studio is a local-first manuscript workspace from Samsarix LLC for writers who want explicit control over both their story canon and a bounded, multi-stage AI drafting process. Build a project, record characters and world rules, preview the exact canon entries selected for a chapter, generate or edit the manuscript, recover prior revisions, and export or restore portable files.
+Samsarix Story Studio is a local-first manuscript workspace from Samsarix LLC for writers who want explicit control over both their story canon and a bounded, multi-stage AI drafting process. Build a project, record characters and world rules, turn planned chapters into drafts without duplicating them, preview the exact canon entries selected for a chapter, recover prior revisions, and export or restore portable files.
 
 The default experience is a deterministic, no-key demo. It does not call an AI provider and is labeled as demo output throughout the interface. Add one supported provider key to use the provider-backed workflow; missing preferred providers fall back to the provider you configured.
 
@@ -30,7 +30,7 @@ Set `SAMSARIX_DATA_FILE` to choose another location. Existing default data at `.
 1. Create a project with a premise, genre, and optional style guidance.
 2. Add empty chapter plans with working titles and synopsis notes, track each as planned, drafting, revising, or complete, and reorder the manuscript with drag or accessible move buttons.
 3. Add characters, locations, factions, items, or lore to its canon. Entries can be always-on or activated by names and phrases.
-4. Write a planned chapter manually, or draft one in the studio. Before generation, review the selected canon entries and approximate context-token count; manually include any additional entry.
+4. Write a planned chapter manually, or choose **Draft this plan** to complete that exact chapter in the studio while preserving its title, position, and continuity links. Before generation, review the selected canon entries and approximate context-token count; manually include any additional entry.
 5. Choose a preset or enable up to seven agent roles, then create a clearly labeled demo or provider-backed draft.
 6. Edit the chapter directly. Every changed save keeps the prior title and manuscript—even a blank planned draft—as a recoverable revision; the newest 50 snapshots per chapter are retained.
 7. Continue the manuscript, reopen any planned or drafted chapter from the archive, export combined Markdown, or download a versioned project JSON backup.

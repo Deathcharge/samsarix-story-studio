@@ -19,6 +19,7 @@ import {
 import { generationInputSchema } from "./generationInput";
 import { claimGeneration, releaseGeneration } from "./generationLock";
 import { generateAndPersistStory } from "./generationService";
+import { isDraftablePlannedChapter } from "./plannedChapter";
 import { enhancePrompt } from "./promptEnhancer";
 import {
   generateContinuationPrompt,
@@ -68,6 +69,7 @@ function omitUserId<T extends { userId: unknown }>(
 function presentStory(story: Story) {
   return {
     ...story,
+    canDraftWithStudio: isDraftablePlannedChapter(story),
     qualityScore: Number(story.qualityScore) / 100,
     ethicalApproval: Number(story.ethicalApproval) === 1,
     ucfHarmony: Number(story.ucfHarmony) / 10_000,
@@ -96,6 +98,7 @@ function presentProjectStory(story: Story) {
     previousChapterId: story.previousChapterId,
     draftStatus: story.draftStatus,
     synopsis: story.synopsis,
+    canDraftWithStudio: isDraftablePlannedChapter(story),
   };
 }
 
@@ -501,6 +504,65 @@ export const appRouter = router({
           chapterNumber,
           previousChapterId: previousStory.id,
           projectId: previousStory.projectId,
+        };
+      }),
+
+    preparePlannedChapter: protectedProcedure
+      .input(z.object({ targetStoryId: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        const story = await db.getStoryById(input.targetStoryId, ctx.user.id);
+        if (!story) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Planned chapter not found",
+          });
+        }
+        if (!isDraftablePlannedChapter(story)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This chapter already has a draft.",
+          });
+        }
+
+        const direction =
+          story.synopsis?.trim() ||
+          `Develop the chapter titled ${story.title}.`;
+        const [project, previousStory] = await Promise.all([
+          db.getProjectById(story.projectId!, ctx.user.id),
+          story.previousChapterId
+            ? db.getStoryById(story.previousChapterId, ctx.user.id)
+            : Promise.resolve(null),
+        ]);
+        if (!project) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Project not found",
+          });
+        }
+        if (story.previousChapterId && !previousStory) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Previous chapter not found",
+          });
+        }
+        const prompt = previousStory
+          ? await generateContinuationPrompt({
+              previousStory: {
+                title: previousStory.title,
+                content: previousStory.content,
+                chapterNumber: previousStory.chapterNumber || 1,
+              },
+              seriesTitle: project.title,
+              userPrompt: direction,
+            })
+          : `Write ${story.title} as chapter ${story.chapterNumber ?? 1}. ${direction} Establish a clear dramatic change, honor the project canon, and end with a meaningful decision.`;
+
+        return {
+          targetStoryId: story.id,
+          title: story.title,
+          prompt: prompt.slice(0, 1_000),
+          projectId: story.projectId!,
+          previousChapterId: story.previousChapterId,
         };
       }),
 

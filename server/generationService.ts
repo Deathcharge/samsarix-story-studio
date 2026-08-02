@@ -3,6 +3,7 @@ import type { GenerationStage } from "../shared/generationLifecycle";
 import { selectCanonContext } from "./canonContext";
 import * as db from "./db";
 import type { GenerationInput } from "./generationInput";
+import { isDraftablePlannedChapter } from "./plannedChapter";
 import { generateSeriesId } from "./storyContinuation";
 import { executeCreativeRitualMulti } from "./z88EngineMulti";
 
@@ -17,17 +18,46 @@ export async function generateAndPersistStory(
   callbacks: GenerationCallbacks = {}
 ) {
   callbacks.signal?.throwIfAborted();
-  const previousStory = input.previousChapterId
-    ? await db.getStoryById(input.previousChapterId, userId)
+  const targetStory = input.targetStoryId
+    ? await db.getStoryById(input.targetStoryId, userId)
     : undefined;
-  if (input.previousChapterId && !previousStory) {
+  if (input.targetStoryId && !targetStory) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Planned chapter not found",
+    });
+  }
+  if (targetStory && !isDraftablePlannedChapter(targetStory)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "This chapter already has a draft and cannot be generated over.",
+    });
+  }
+
+  const previousChapterId =
+    targetStory?.previousChapterId ?? input.previousChapterId;
+  const previousStory = previousChapterId
+    ? await db.getStoryById(previousChapterId, userId)
+    : undefined;
+  if (previousChapterId && !previousStory) {
     throw new TRPCError({
       code: "NOT_FOUND",
       message: "Previous chapter not found",
     });
   }
 
-  const projectId = input.projectId ?? previousStory?.projectId ?? null;
+  const inferredProjectId = targetStory?.projectId ?? previousStory?.projectId;
+  if (
+    input.projectId &&
+    inferredProjectId &&
+    input.projectId !== inferredProjectId
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The selected chapter does not belong to this project.",
+    });
+  }
+  const projectId = inferredProjectId ?? input.projectId ?? null;
   if (previousStory?.projectId && projectId !== previousStory.projectId) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -46,20 +76,27 @@ export async function generateAndPersistStory(
   const projectStories = project
     ? await db.getStoriesByProject(project.id, userId)
     : [];
-  // Blank planned chapters are structural predecessors in the manuscript.
-  const previousProjectChapter = previousStory ?? projectStories.at(-1);
-  const seriesId = previousProjectChapter
-    ? previousProjectChapter.seriesId ||
-      generateSeriesId(`story_${previousProjectChapter.id}`)
-    : project
-      ? `project_${project.id}`
-      : input.seriesId;
-  const chapterNumber = previousProjectChapter
-    ? (previousProjectChapter.chapterNumber ?? 1) + 1
-    : project
-      ? Math.max(0, ...projectStories.map(story => story.chapterNumber ?? 0)) +
-        1
-      : input.chapterNumber;
+  const previousProjectChapter = targetStory
+    ? previousStory
+    : (previousStory ?? projectStories.at(-1));
+  const seriesId =
+    targetStory?.seriesId ??
+    (previousProjectChapter
+      ? previousProjectChapter.seriesId ||
+        generateSeriesId(`story_${previousProjectChapter.id}`)
+      : project
+        ? `project_${project.id}`
+        : input.seriesId);
+  const chapterNumber =
+    targetStory?.chapterNumber ??
+    (previousProjectChapter
+      ? (previousProjectChapter.chapterNumber ?? 1) + 1
+      : project
+        ? Math.max(
+            0,
+            ...projectStories.map(story => story.chapterNumber ?? 0)
+          ) + 1
+        : input.chapterNumber);
 
   const result = await executeCreativeRitualMulti(input.prompt, {
     preset: input.preset,
@@ -80,10 +117,7 @@ export async function generateAndPersistStory(
   callbacks.signal?.throwIfAborted();
   await callbacks.onStage?.("saving", 96);
   callbacks.signal?.throwIfAborted();
-  const story = await db.createStory({
-    userId,
-    projectId,
-    title: result.title,
+  const completion = {
     prompt: input.prompt,
     content: result.storyText,
     ritualId: result.ritualId,
@@ -97,10 +131,25 @@ export async function generateAndPersistStory(
     ucfResilience: Math.round(result.metadata.ucfSnapshot.resilience * 10_000),
     ucfZoom: Math.round(result.metadata.ucfSnapshot.zoom * 10_000),
     agentContributions: JSON.stringify(result.metadata.agentContributions),
-    seriesId,
-    chapterNumber,
-    previousChapterId: previousProjectChapter?.id,
-  });
+    draftStatus: "drafting" as const,
+  };
+  const story = targetStory
+    ? await db.completePlannedChapter(targetStory.id, userId, completion)
+    : await db.createStory({
+        userId,
+        projectId,
+        title: result.title,
+        ...completion,
+        seriesId,
+        chapterNumber,
+        previousChapterId: previousProjectChapter?.id,
+      });
+  if (!story) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "The planned chapter changed before this draft could be saved.",
+    });
+  }
 
   if (previousProjectChapter && !previousProjectChapter.seriesId) {
     try {
@@ -119,7 +168,7 @@ export async function generateAndPersistStory(
   return {
     ritualId: result.ritualId,
     storyId: story.id,
-    title: result.title,
+    title: story.title,
     storyText: result.storyText,
     metadata: result.metadata,
     projectId,
