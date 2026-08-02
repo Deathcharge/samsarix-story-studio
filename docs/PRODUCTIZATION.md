@@ -168,6 +168,7 @@ The duplicate resolver processes started by those four independent baseline comm
 - Corrected atomic local persistence so failed disk writes leave the last persisted in-memory state intact.
 - Kept routine project responses bounded to chapter summaries; full manuscript and revision bodies are returned only by story detail or an explicit project export.
 - Performed production-browser QA for project creation, canon creation, context preview, demo generation, chapter editing, revision history, continuation privacy, and 390-pixel responsive layout; QA findings were fixed before release verification.
+- Hardened the complete development dependency graph for 1.1.1, including Vite, Vitest, esbuild, tar, PostCSS, Rollup, Picomatch, and Babel; pnpm 11 workspace overrides now make those resolutions reproducible in clean installs and CI.
 
 ## Final verification
 
@@ -180,7 +181,7 @@ Environment: Windows, Node.js `v24.12.0`, pnpm `11.9.0`. CI uses the documented 
 | `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                         |
 | `pnpm test`                      | Passed; 4 files and 12 behavioral tests, including projects/canon/revisions, context bounds, ownership, continuation, demo fidelity, and version-1 local archive migration.                          |
 | `pnpm build`                     | Passed; 1,769 client modules and the bundled server production artifact were emitted.                                                                                                                |
-| `pnpm audit --prod`              | Passed; no known production dependency vulnerabilities.                                                                                                                                              |
+| `pnpm audit`                     | Passed; no known vulnerabilities in production or development dependencies.                                                                                                                          |
 | `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                   |
 | Drizzle schema check             | Passed; generated migrations and snapshots match the eight-table schema with no ungenerated changes.                                                                                                 |
 | production browser QA            | Passed on `127.0.0.1`: project/canon creation, context preview, demo generation, editing, revision history, continuation URL/privacy, 390px layout, and final zero-error/zero-warning console check. |
