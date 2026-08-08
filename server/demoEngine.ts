@@ -116,8 +116,6 @@ By sunrise, the tram line was running twelve minutes late. Clinics had canceled 
 ${protagonist} returned to the street as the rain stopped. In the sudden quiet, repair crews opened the first archive cell under public observation. Nothing had been solved forever. But the next decision would be made in daylight, by the people who would have to live with it.`;
 
   const wordCount = storyText.trim().split(/\s+/).length;
-  await options.onStage?.("review", 90);
-  await pause(options.signal);
   options.signal?.throwIfAborted();
   return {
     success: true as const,
@@ -129,21 +127,18 @@ ${protagonist} returned to the street as the rain stopped. In the sudden quiet, 
       title,
       genre: "speculative fiction",
       wordCount,
-      qualityScore: 0.72,
-      ethicalApproval: true,
+      qualityScore: 0,
+      ethicalApproval: false,
       agentContributions: {
-        oracle: { provider: "demo", tokens: 0, role: "Plot Architect" },
-        lumina: { provider: "demo", tokens: 0, role: "Character Psychologist" },
-        gemini: { provider: "demo", tokens: 0, role: "World-Builder" },
-        kavach: { provider: "demo", tokens: 0, role: "Safety Reviewer" },
+        template: { provider: "demo", role: "Deterministic local template" },
       },
       ucfSnapshot: {
-        harmony: 0.72,
-        prana: 0.66,
-        drishti: 0.74,
-        klesha: 0.08,
-        resilience: 0.71,
-        zoom: 0.69,
+        harmony: 0,
+        prana: 0,
+        drishti: 0,
+        klesha: 0,
+        resilience: 0,
+        zoom: 0,
       },
     },
   };

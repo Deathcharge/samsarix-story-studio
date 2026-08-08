@@ -36,10 +36,13 @@ describe("primary local story journey", () => {
     const story = await caller.stories.getByRitualId({
       ritualId: generated.ritualId,
     });
-    expect(story?.qualityScore).toBeCloseTo(0.72);
-    expect(story?.ucfHarmony).toBeCloseTo(0.72);
+    expect(story?.review).toEqual({
+      quality: { status: "not-run", score: null },
+      safety: { status: "not-run", outcome: null },
+    });
+    expect(story).not.toHaveProperty("ucfHarmony");
     expect(story?.agentContributions).toMatchObject({
-      oracle: { provider: "demo" },
+      template: { provider: "demo" },
     });
 
     const continuation = await caller.stories.prepareContinuation({
@@ -312,6 +315,53 @@ describe("primary local story journey", () => {
     expect(workspace.stories[1].seriesId).toBe(`project_${project.id}`);
     expect(workspace.stories[0].draftStatus).toBe("revising");
 
+    const arrival = await caller.projects.createScene({
+      projectId: project.id,
+      storyId: crossing.id,
+      title: "Impossible arrival",
+      summary: "The harbor master recognizes a ship that has never launched.",
+      pov: "Iria",
+      location: "False Harbor",
+    });
+    const ledger = await caller.projects.createScene({
+      projectId: project.id,
+      storyId: crossing.id,
+      title: "Tide ledger",
+      summary: "The crew finds tomorrow's tide recorded in a century-old book.",
+    });
+    await caller.projects.reorderScenes({
+      projectId: project.id,
+      storyId: crossing.id,
+      orderedSceneIds: [ledger.id, arrival.id],
+    });
+    await caller.projects.updateScene({
+      id: arrival.id,
+      projectId: project.id,
+      storyId: crossing.id,
+      title: "Impossible arrival",
+      summary: "The harbor master recognizes Iria's ship before it launches.",
+      pov: "Iria",
+      location: "False Harbor",
+    });
+    await caller.stories.updateOrganization({
+      id: crossing.id,
+      tags: ["Map mystery", "Draft", "draft"],
+      isFavorite: true,
+    });
+    workspace = await caller.projects.get({ id: project.id });
+    expect(workspace.stories[0].scenes.map(scene => scene.id)).toEqual([
+      ledger.id,
+      arrival.id,
+    ]);
+    expect(workspace.stories[0].scenes[1].summary).toContain("Iria's ship");
+    expect(await caller.stories.getById({ id: crossing.id })).toMatchObject({
+      tags: ["Map mystery", "Draft"],
+      isFavorite: true,
+    });
+    expect(
+      (await caller.stories.list()).find(story => story.id === crossing.id)
+    ).toMatchObject({ tags: ["Map mystery", "Draft"], isFavorite: true });
+
     await expect(
       caller.projects.reorderChapters({
         projectId: project.id,
@@ -340,6 +390,13 @@ describe("primary local story journey", () => {
       content: "",
     });
     expect(backup.stories[1].revisions[0].content).toBe("");
+    expect(backup.stories[0].scenes.map(scene => scene.title)).toEqual([
+      "Tide ledger",
+      "Impossible arrival",
+    ]);
+    expect(backup.stories[0].scenes.every(scene => !("userId" in scene))).toBe(
+      true
+    );
 
     const imported = await caller.projects.importBackup({ backup });
     const restored = await caller.projects.get({ id: imported.projectId });
@@ -351,6 +408,10 @@ describe("primary local story journey", () => {
       "The crew reaches a harbor that exists on only one map."
     );
     expect(restored.stories[1].previousChapterId).toBe(restored.stories[0].id);
+    expect(restored.stories[0].scenes.map(scene => scene.title)).toEqual([
+      "Tide ledger",
+      "Impossible arrival",
+    ]);
     expect(
       (await caller.stories.getById({ id: restored.stories[0].id }))?.content
     ).toBe("");
@@ -379,6 +440,20 @@ describe("primary local story journey", () => {
         synopsis: "Overwrite someone else's plan",
       })
     ).rejects.toThrow("Project not found");
+    await expect(
+      otherCaller.projects.deleteScene({
+        id: arrival.id,
+        projectId: project.id,
+        storyId: crossing.id,
+      })
+    ).rejects.toThrow("Project not found");
+    await expect(
+      otherCaller.stories.updateOrganization({
+        id: crossing.id,
+        tags: ["stolen"],
+        isFavorite: false,
+      })
+    ).rejects.toThrow();
   });
 
   it("drafts planned chapters in place without duplicating or breaking continuity", async () => {
@@ -399,6 +474,14 @@ describe("primary local story journey", () => {
       title: "A Map of Promises",
       synopsis: "The observatory staff realize the star repeats their secrets.",
     });
+    await caller.projects.createScene({
+      projectId: project.id,
+      storyId: first.id,
+      title: "Roof calibration",
+      summary: "Sena aligns the old lens and finds the unlisted star.",
+      pov: "Sena",
+      location: "North dome",
+    });
 
     const preparedFirst = await caller.stories.preparePlannedChapter({
       targetStoryId: first.id,
@@ -409,6 +492,7 @@ describe("primary local story journey", () => {
       previousChapterId: null,
     });
     expect(preparedFirst.prompt).toContain("The Unlisted Star");
+    expect(preparedFirst.prompt).toContain("Roof calibration");
 
     const generatedFirst = await caller.stories.generate({
       targetStoryId: first.id,

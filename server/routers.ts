@@ -7,6 +7,11 @@ import {
   PROJECT_BACKUP_VERSION,
   projectBackupSchema,
 } from "../shared/projectBackup";
+import {
+  parseStoredStoryTags,
+  serializeStoryTags,
+  storyTagsSchema,
+} from "../shared/storyOrganization";
 import { getAllAgentConfigs, getAllPresetModes } from "./agentConfig";
 import { parseActivationKeys, selectCanonContext } from "./canonContext";
 import * as db from "./db";
@@ -67,24 +72,71 @@ function omitUserId<T extends { userId: unknown }>(
 }
 
 function presentStory(story: Story) {
+  const {
+    userId: _userId,
+    collectionId: _collectionId,
+    deletedAt: _deletedAt,
+    qualityScore,
+    ethicalApproval,
+    ucfHarmony: _ucfHarmony,
+    ucfPrana: _ucfPrana,
+    ucfDrishti: _ucfDrishti,
+    ucfKlesha: _ucfKlesha,
+    ucfResilience: _ucfResilience,
+    ucfZoom: _ucfZoom,
+    agentContributions: storedContributions,
+    tags: storedTags,
+    isFavorite: storedFavorite,
+    ...activeStory
+  } = story;
+  void _userId;
+  void _collectionId;
+  void _deletedAt;
+  void _ucfHarmony;
+  void _ucfPrana;
+  void _ucfDrishti;
+  void _ucfKlesha;
+  void _ucfResilience;
+  void _ucfZoom;
+  const agentContributions = parseContributions(
+    String(storedContributions ?? "[]")
+  );
+  const contributionRecord =
+    agentContributions &&
+    typeof agentContributions === "object" &&
+    !Array.isArray(agentContributions)
+      ? (agentContributions as Record<string, { provider?: unknown }>)
+      : {};
+  const qualityReviewRan =
+    typeof contributionRecord.claude?.provider === "string" &&
+    contributionRecord.claude.provider !== "demo";
+  const safetyReviewRan =
+    typeof contributionRecord.kavach?.provider === "string" &&
+    contributionRecord.kavach.provider !== "demo";
   return {
-    ...story,
+    ...activeStory,
     canDraftWithStudio: isDraftablePlannedChapter(story),
-    qualityScore: Number(story.qualityScore) / 100,
-    ethicalApproval: Number(story.ethicalApproval) === 1,
-    ucfHarmony: Number(story.ucfHarmony) / 10_000,
-    ucfPrana: Number(story.ucfPrana) / 10_000,
-    ucfDrishti: Number(story.ucfDrishti) / 10_000,
-    ucfKlesha: Number(story.ucfKlesha) / 10_000,
-    ucfResilience: Number(story.ucfResilience) / 10_000,
-    ucfZoom: Number(story.ucfZoom) / 10_000,
-    agentContributions: parseContributions(
-      String(story.agentContributions ?? "[]")
-    ),
+    tags: parseStoredStoryTags(storedTags),
+    isFavorite: storedFavorite === 1,
+    agentContributions,
+    review: {
+      quality: qualityReviewRan
+        ? { status: "completed" as const, score: qualityScore / 100 }
+        : { status: "not-run" as const, score: null },
+      safety: safetyReviewRan
+        ? {
+            status: "completed" as const,
+            outcome: ethicalApproval === 1 ? "pass" : "flagged",
+          }
+        : { status: "not-run" as const, outcome: null },
+    },
   };
 }
 
-function presentProjectStory(story: Story) {
+function presentProjectStory(
+  story: Story,
+  scenes: Awaited<ReturnType<typeof db.getStoryScenesByProject>> = []
+) {
   return {
     id: story.id,
     title: story.title,
@@ -99,6 +151,7 @@ function presentProjectStory(story: Story) {
     draftStatus: story.draftStatus,
     synopsis: story.synopsis,
     canDraftWithStudio: isDraftablePlannedChapter(story),
+    scenes: (scenes ?? []).filter(scene => scene.storyId === story.id),
   };
 }
 
@@ -162,13 +215,14 @@ export const appRouter = router({
       .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
         const project = await requireProject(input.id, ctx.user.id);
-        const [stories, canon] = await Promise.all([
+        const [stories, canon, scenes] = await Promise.all([
           db.getStoriesByProject(project.id, ctx.user.id),
           db.getCanonEntries(project.id, ctx.user.id),
+          db.getStoryScenesByProject(project.id, ctx.user.id),
         ]);
         return {
           project,
-          stories: stories.map(presentProjectStory),
+          stories: stories.map(story => presentProjectStory(story, scenes)),
           canon: canon.map(entry => ({
             ...entry,
             activationKeys: parseActivationKeys(entry.activationKeys),
@@ -265,6 +319,115 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    createScene: protectedProcedure
+      .input(
+        z.object({
+          projectId: z.number().int().positive(),
+          storyId: z.number().int().positive(),
+          title: z.string().trim().min(1).max(255),
+          summary: z.string().trim().min(1).max(4_000),
+          pov: z.string().trim().max(255).optional(),
+          location: z.string().trim().max(255).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await requireProject(input.projectId, ctx.user.id);
+        const created = await db.createStoryScene({
+          projectId: input.projectId,
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          title: input.title,
+          summary: input.summary,
+          pov: input.pov || null,
+          location: input.location || null,
+        });
+        if (!created) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The chapter was not found or already has 100 scenes.",
+          });
+        }
+        return created;
+      }),
+
+    updateScene: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          projectId: z.number().int().positive(),
+          storyId: z.number().int().positive(),
+          title: z.string().trim().min(1).max(255),
+          summary: z.string().trim().min(1).max(4_000),
+          pov: z.string().trim().max(255).optional(),
+          location: z.string().trim().max(255).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await requireProject(input.projectId, ctx.user.id);
+        const updated = await db.updateStoryScene(
+          input.id,
+          input.storyId,
+          ctx.user.id,
+          {
+            title: input.title,
+            summary: input.summary,
+            pov: input.pov || null,
+            location: input.location || null,
+          }
+        );
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+        return { success: true };
+      }),
+
+    deleteScene: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          projectId: z.number().int().positive(),
+          storyId: z.number().int().positive(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await requireProject(input.projectId, ctx.user.id);
+        const deleted = await db.deleteStoryScene(
+          input.id,
+          input.storyId,
+          ctx.user.id
+        );
+        if (!deleted) throw new TRPCError({ code: "NOT_FOUND" });
+        return { success: true };
+      }),
+
+    reorderScenes: protectedProcedure
+      .input(
+        z.object({
+          projectId: z.number().int().positive(),
+          storyId: z.number().int().positive(),
+          orderedSceneIds: z
+            .array(z.number().int().positive())
+            .max(100)
+            .refine(
+              values => new Set(values).size === values.length,
+              "Scene order cannot contain duplicate IDs."
+            ),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await requireProject(input.projectId, ctx.user.id);
+        const reordered = await db.reorderStoryScenes(
+          input.storyId,
+          ctx.user.id,
+          input.orderedSceneIds
+        );
+        if (!reordered) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scene order must contain every scene in this chapter.",
+          });
+        }
+        return { success: true };
+      }),
+
     createCanon: protectedProcedure
       .input(
         canonFieldsSchema.extend({ projectId: z.number().int().positive() })
@@ -351,9 +514,10 @@ export const appRouter = router({
       .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
         const project = await requireProject(input.id, ctx.user.id);
-        const [stories, canon] = await Promise.all([
+        const [stories, canon, scenes] = await Promise.all([
           db.getStoriesByProject(project.id, ctx.user.id),
           db.getCanonEntries(project.id, ctx.user.id),
+          db.getStoryScenesByProject(project.id, ctx.user.id),
         ]);
         const revisions = await Promise.all(
           stories.map(story => db.getStoryRevisions(story.id, ctx.user.id))
@@ -369,9 +533,21 @@ export const appRouter = router({
             alwaysInclude: entry.alwaysInclude === 1,
           })),
           stories: stories.map((story, index) => ({
-            ...omitUserId(presentStory(story)),
+            ...omitUserId(story),
             projectId: project.id,
+            qualityScore: story.qualityScore / 100,
+            ethicalApproval: story.ethicalApproval === 1,
+            ucfHarmony: story.ucfHarmony / 10_000,
+            ucfPrana: story.ucfPrana / 10_000,
+            ucfDrishti: story.ucfDrishti / 10_000,
+            ucfKlesha: story.ucfKlesha / 10_000,
+            ucfResilience: story.ucfResilience / 10_000,
+            ucfZoom: story.ucfZoom / 10_000,
+            agentContributions: parseContributions(story.agentContributions),
             revisions: revisions[index].map(omitUserId),
+            scenes: (scenes ?? [])
+              .filter(scene => scene.storyId === story.id)
+              .map(omitUserId),
           })),
         };
       }),
@@ -430,9 +606,8 @@ export const appRouter = router({
         prompt: story.prompt,
         ritualId: story.ritualId,
         wordCount: story.wordCount,
-        qualityScore: story.qualityScore / 100,
-        ethicalApproval: story.ethicalApproval === 1,
-        ucfHarmony: story.ucfHarmony / 10_000,
+        tags: parseStoredStoryTags(story.tags),
+        isFavorite: story.isFavorite === 1,
         createdAt: story.createdAt,
         seriesId: story.seriesId,
         chapterNumber: story.chapterNumber,
@@ -441,6 +616,27 @@ export const appRouter = router({
         synopsis: story.synopsis,
       }));
     }),
+
+    updateOrganization: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          tags: storyTagsSchema,
+          isFavorite: z.boolean(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const updated = await db.updateStoryOrganization(
+          input.id,
+          ctx.user.id,
+          {
+            tags: serializeStoryTags(input.tags),
+            isFavorite: input.isFavorite ? 1 : 0,
+          }
+        );
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+        return { success: true };
+      }),
 
     getById: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
@@ -527,11 +723,12 @@ export const appRouter = router({
         const direction =
           story.synopsis?.trim() ||
           `Develop the chapter titled ${story.title}.`;
-        const [project, previousStory] = await Promise.all([
+        const [project, previousStory, scenes] = await Promise.all([
           db.getProjectById(story.projectId!, ctx.user.id),
           story.previousChapterId
             ? db.getStoryById(story.previousChapterId, ctx.user.id)
             : Promise.resolve(null),
+          db.getStoryScenes(story.id, ctx.user.id),
         ]);
         if (!project) {
           throw new TRPCError({
@@ -545,6 +742,15 @@ export const appRouter = router({
             message: "Previous chapter not found",
           });
         }
+        const sceneDirection =
+          scenes && scenes.length > 0
+            ? `\n\nFollow these writer-authored scene beats in order:\n${scenes
+                .map(
+                  scene =>
+                    `${scene.position}. ${scene.title}: ${scene.summary}${scene.pov ? ` (POV: ${scene.pov})` : ""}${scene.location ? ` (Location: ${scene.location})` : ""}`
+                )
+                .join("\n")}`
+            : "";
         const prompt = previousStory
           ? await generateContinuationPrompt({
               previousStory: {
@@ -553,9 +759,9 @@ export const appRouter = router({
                 chapterNumber: previousStory.chapterNumber || 1,
               },
               seriesTitle: project.title,
-              userPrompt: direction,
+              userPrompt: `${direction}${sceneDirection}`,
             })
-          : `Write ${story.title} as chapter ${story.chapterNumber ?? 1}. ${direction} Establish a clear dramatic change, honor the project canon, and end with a meaningful decision.`;
+          : `Write ${story.title} as chapter ${story.chapterNumber ?? 1}. ${direction}${sceneDirection} Establish a clear dramatic change, honor the project canon, and end with a meaningful decision.`;
 
         return {
           targetStoryId: story.id,
@@ -632,32 +838,6 @@ export const appRouter = router({
       .query(({ input, ctx }) =>
         db.getStoriesBySeries(input.seriesId, ctx.user.id)
       ),
-
-    getUcfTrajectory: protectedProcedure
-      .input(z.object({ ritualId: z.string().trim().min(1).max(128) }))
-      .query(async ({ input, ctx }) => {
-        const story = await db.getStoryByRitualId(input.ritualId, ctx.user.id);
-        if (!story) throw new TRPCError({ code: "NOT_FOUND" });
-        const states = await db.getUcfStatesByRitualId(input.ritualId);
-        return states.map(state => ({
-          step: state.step,
-          harmony: state.harmony / 10_000,
-          prana: state.prana / 10_000,
-          drishti: state.drishti / 10_000,
-          klesha: state.klesha / 10_000,
-          resilience: state.resilience / 10_000,
-          zoom: state.zoom / 10_000,
-          timestamp: state.timestamp,
-        }));
-      }),
-
-    getAgentLogs: protectedProcedure
-      .input(z.object({ ritualId: z.string().trim().min(1).max(128) }))
-      .query(async ({ input, ctx }) => {
-        const story = await db.getStoryByRitualId(input.ritualId, ctx.user.id);
-        if (!story) throw new TRPCError({ code: "NOT_FOUND" });
-        return db.getAgentLogsByRitualId(input.ritualId);
-      }),
   }),
 });
 

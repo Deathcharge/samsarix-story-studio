@@ -15,6 +15,7 @@ async function loadArchive(archive: unknown) {
       projects: unknown[];
       canonEntries: unknown[];
       storyRevisions: unknown[];
+      storyScenes: unknown[];
       generationJobs: Array<{
         id: string;
         status: string;
@@ -57,11 +58,12 @@ describe("local archive migration", () => {
 
     expect(user.name).toBe("Legacy Writer");
     expect(persisted).toMatchObject({
-      version: 4,
+      version: 5,
       projects: [],
       canonEntries: [],
       storyRevisions: [],
       generationJobs: [],
+      storyScenes: [],
     });
     expect(persisted.stories[0]).toMatchObject({
       id: 1,
@@ -105,7 +107,7 @@ describe("local archive migration", () => {
       agentLogs: [],
     });
 
-    expect(persisted.version).toBe(4);
+    expect(persisted.version).toBe(5);
     expect(persisted.stories[0]).toMatchObject({
       id: 1,
       projectId: 1,
@@ -148,7 +150,11 @@ describe("local archive migration", () => {
       agentLogs: [],
     });
 
-    expect(persisted).toMatchObject({ version: 4, generationJobs: [] });
+    expect(persisted).toMatchObject({
+      version: 5,
+      generationJobs: [],
+      storyScenes: [],
+    });
 
     const dataPath = process.env.SAMSARIX_DATA_FILE!;
     const archive = JSON.parse(await readFile(dataPath, "utf8"));

@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { ScenePlan, type SceneCardData } from "@/components/ScenePlan";
 
 type Chapter = {
   id: number;
@@ -34,6 +35,7 @@ type Chapter = {
   draftStatus: ChapterStatus;
   synopsis: string | null;
   canDraftWithStudio: boolean;
+  scenes: SceneCardData[];
 };
 
 function PlanningEditor({
@@ -362,6 +364,11 @@ export function ChapterBoard({
                         synopsis,
                       })
                     }
+                  />
+                  <ScenePlan
+                    projectId={projectId}
+                    storyId={story.id}
+                    scenes={story.scenes}
                   />
                 </div>
                 <div className="flex shrink-0 flex-col gap-1">
