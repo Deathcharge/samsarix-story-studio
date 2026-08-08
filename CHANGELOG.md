@@ -9,6 +9,7 @@ All notable changes to Samsarix Story Studio are documented here.
 - Removed synthetic UCF metrics, empty reasoning-log/trajectory screens, default review approval, and placeholder token counts from the active product contract; advisory review results now appear only when the relevant provider-backed reviewer actually ran.
 - Added local archive version 5 and MySQL migration `0009_flashy_black_widow.sql` for story scenes.
 - Added reproducible source packaging with a SHA-256 manifest, an independent-writer pilot protocol, provider/MySQL verification runbooks, and a counsel-ready licensing review packet.
+- Updated direct and transitive Nano ID and PostCSS resolutions after 2026-08-08 registry advisories; the final dependency audit reports no known vulnerabilities.
 
 ## 1.5.0 — 2026-08-01
 

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import type { Story } from "../drizzle/schema";
+import type { Story, StoryScene } from "../drizzle/schema";
 import { CHAPTER_STATUSES } from "../shared/chapterPlanning";
 import {
   PROJECT_BACKUP_FORMAT,
@@ -68,6 +68,13 @@ function omitUserId<T extends { userId: unknown }>(
 ): Omit<T, "userId"> {
   const { userId, ...portable } = value;
   void userId;
+  return portable;
+}
+
+function omitStoryInternals(story: Story) {
+  const { userId, collectionId, ...portable } = story;
+  void userId;
+  void collectionId;
   return portable;
 }
 
@@ -153,6 +160,28 @@ function presentProjectStory(
     canDraftWithStudio: isDraftablePlannedChapter(story),
     scenes: (scenes ?? []).filter(scene => scene.storyId === story.id),
   };
+}
+
+function formatSceneDirection(scenes: StoryScene[]) {
+  if (scenes.length === 0) return "";
+  const prefix = "\n\nWriter-authored scene beats, in order:\n";
+  const maximumLength = 420;
+  const lines: string[] = [];
+  let used = prefix.length;
+  for (const scene of scenes.slice(0, 8)) {
+    const label = `${scene.position}. ${scene.title.slice(0, 60)}: `;
+    const details = [
+      scene.pov ? `POV ${scene.pov.slice(0, 40)}` : "",
+      scene.location ? `at ${scene.location.slice(0, 40)}` : "",
+    ].filter(Boolean);
+    const suffix = details.length > 0 ? ` (${details.join(", ")})` : "";
+    const available = maximumLength - used - label.length - suffix.length - 1;
+    if (available < 24) break;
+    const line = `${label}${scene.summary.slice(0, available)}${suffix}`;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return lines.length > 0 ? `${prefix}${lines.join("\n")}` : "";
 }
 
 async function requireProject(projectId: number, userId: number) {
@@ -364,6 +393,10 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         await requireProject(input.projectId, ctx.user.id);
+        const story = await db.getStoryById(input.storyId, ctx.user.id);
+        if (!story || story.projectId !== input.projectId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
         const updated = await db.updateStoryScene(
           input.id,
           input.storyId,
@@ -389,6 +422,10 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         await requireProject(input.projectId, ctx.user.id);
+        const story = await db.getStoryById(input.storyId, ctx.user.id);
+        if (!story || story.projectId !== input.projectId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
         const deleted = await db.deleteStoryScene(
           input.id,
           input.storyId,
@@ -414,6 +451,10 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         await requireProject(input.projectId, ctx.user.id);
+        const story = await db.getStoryById(input.storyId, ctx.user.id);
+        if (!story || story.projectId !== input.projectId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
         const reordered = await db.reorderStoryScenes(
           input.storyId,
           ctx.user.id,
@@ -533,7 +574,7 @@ export const appRouter = router({
             alwaysInclude: entry.alwaysInclude === 1,
           })),
           stories: stories.map((story, index) => ({
-            ...omitUserId(story),
+            ...omitStoryInternals(story),
             projectId: project.id,
             qualityScore: story.qualityScore / 100,
             ethicalApproval: story.ethicalApproval === 1,
@@ -742,16 +783,8 @@ export const appRouter = router({
             message: "Previous chapter not found",
           });
         }
-        const sceneDirection =
-          scenes && scenes.length > 0
-            ? `\n\nFollow these writer-authored scene beats in order:\n${scenes
-                .map(
-                  scene =>
-                    `${scene.position}. ${scene.title}: ${scene.summary}${scene.pov ? ` (POV: ${scene.pov})` : ""}${scene.location ? ` (Location: ${scene.location})` : ""}`
-                )
-                .join("\n")}`
-            : "";
-        const prompt = previousStory
+        const sceneDirection = formatSceneDirection(scenes ?? []);
+        const corePrompt = previousStory
           ? await generateContinuationPrompt({
               previousStory: {
                 title: previousStory.title,
@@ -759,14 +792,17 @@ export const appRouter = router({
                 chapterNumber: previousStory.chapterNumber || 1,
               },
               seriesTitle: project.title,
-              userPrompt: `${direction}${sceneDirection}`,
+              userPrompt: direction,
             })
-          : `Write ${story.title} as chapter ${story.chapterNumber ?? 1}. ${direction}${sceneDirection} Establish a clear dramatic change, honor the project canon, and end with a meaningful decision.`;
+          : `Write ${story.title} as chapter ${story.chapterNumber ?? 1}. ${direction} Establish a clear dramatic change, honor the project canon, and end with a meaningful decision.`;
+        const prompt = `${corePrompt
+          .slice(0, 1_000 - sceneDirection.length)
+          .trimEnd()}${sceneDirection}`;
 
         return {
           targetStoryId: story.id,
           title: story.title,
-          prompt: prompt.slice(0, 1_000),
+          prompt,
           projectId: story.projectId!,
           previousChapterId: story.previousChapterId,
         };

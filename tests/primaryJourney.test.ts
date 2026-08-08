@@ -397,6 +397,9 @@ describe("primary local story journey", () => {
     expect(backup.stories[0].scenes.every(scene => !("userId" in scene))).toBe(
       true
     );
+    expect(backup.stories.every(story => !("collectionId" in story))).toBe(
+      true
+    );
 
     const imported = await caller.projects.importBackup({ backup });
     const restored = await caller.projects.get({ id: imported.projectId });
@@ -452,6 +455,18 @@ describe("primary local story journey", () => {
         id: crossing.id,
         tags: ["stolen"],
         isFavorite: false,
+      })
+    ).rejects.toThrow();
+
+    const unrelatedProject = await caller.projects.create({
+      title: "Unrelated manuscript",
+      premise: "A separate project cannot be used to authorize scene edits.",
+    });
+    await expect(
+      caller.projects.deleteScene({
+        id: arrival.id,
+        projectId: unrelatedProject.id,
+        storyId: crossing.id,
       })
     ).rejects.toThrow();
   });
@@ -549,12 +564,20 @@ describe("primary local story journey", () => {
       otherCaller.stories.preparePlannedChapter({ targetStoryId: second.id })
     ).rejects.toThrow("Planned chapter not found");
 
+    await caller.projects.createScene({
+      projectId: project.id,
+      storyId: second.id,
+      title: "Echo in the staff room",
+      summary: "The observatory staff hear their private vows repeated aloud.",
+    });
+
     const preparedSecond = await caller.stories.preparePlannedChapter({
       targetStoryId: second.id,
     });
     expect(preparedSecond.previousChapterId).toBe(first.id);
     expect(preparedSecond.prompt).toContain("chapter 2");
     expect(preparedSecond.prompt).toContain("The Quiet Astrarium");
+    expect(preparedSecond.prompt).toContain("Echo in the staff room");
     const generatedSecond = await caller.stories.generate({
       targetStoryId: second.id,
       projectId: project.id,
