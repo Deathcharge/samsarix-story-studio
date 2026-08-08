@@ -47,6 +47,7 @@ function backupFixture() {
         isFavorite: 0,
         deletedAt: null,
         revisions: [],
+        scenes: [],
       },
     ],
   };

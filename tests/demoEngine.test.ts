@@ -12,7 +12,9 @@ describe("local no-key tools", () => {
     expect(result.ritualId).toMatch(/^demo_/);
     expect(result.storyText).toContain(prompt);
     expect(result.metadata.wordCount).toBeGreaterThan(500);
-    expect(result.metadata.agentContributions.oracle.provider).toBe("demo");
+    expect(result.metadata.agentContributions.template.provider).toBe("demo");
+    expect(result.metadata.qualityScore).toBe(0);
+    expect(result.metadata.ethicalApproval).toBe(false);
   });
 
   it("refines short prompts locally without a provider call", async () => {
@@ -56,7 +58,7 @@ describe("local no-key tools", () => {
       else process.env.DEMO_STAGE_DELAY_MS = originalDelay;
     }
 
-    expect(stages).toEqual(["preparing", "synthesis", "review"]);
+    expect(stages).toEqual(["preparing", "synthesis"]);
   });
 
   it("stops promptly when its signal is aborted", async () => {

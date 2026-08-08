@@ -4,18 +4,24 @@ import type {
   Project,
   Story,
   StoryRevision,
+  StoryScene,
 } from "../drizzle/schema";
 import {
   countWords,
   summarizeProjectBackup,
   type ProjectBackup,
 } from "../shared/projectBackup";
+import {
+  parseStoredStoryTags,
+  serializeStoryTags,
+} from "../shared/storyOrganization";
 
 type ImportStory = {
   sourceId: number;
   previousSourceId: number | null;
   values: Omit<Story, "id" | "projectId" | "previousChapterId" | "userId">;
   revisions: Array<Omit<StoryRevision, "id" | "storyId" | "userId">>;
+  scenes: Array<Omit<StoryScene, "id" | "storyId" | "projectId" | "userId">>;
 };
 
 export type ProjectImportPlan = {
@@ -78,7 +84,7 @@ export function prepareProjectImport(backup: ProjectBackup): ProjectImportPlan {
           draftStatus: story.draftStatus,
           synopsis: story.synopsis,
           collectionId: null,
-          tags: story.tags ?? null,
+          tags: serializeStoryTags(parseStoredStoryTags(story.tags)),
           isFavorite: story.isFavorite ?? 0,
           deletedAt: null,
         },
@@ -93,6 +99,17 @@ export function prepareProjectImport(backup: ProjectBackup): ProjectImportPlan {
             content: revision.content,
             reason: revision.reason,
             createdAt: revision.createdAt,
+          })),
+        scenes: [...story.scenes]
+          .sort((left, right) => left.position - right.position)
+          .map(scene => ({
+            title: scene.title,
+            summary: scene.summary,
+            position: scene.position,
+            pov: scene.pov,
+            location: scene.location,
+            createdAt: scene.createdAt,
+            updatedAt: scene.updatedAt,
           })),
       };
     }),

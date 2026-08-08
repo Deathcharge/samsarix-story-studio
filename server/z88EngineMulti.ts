@@ -27,10 +27,7 @@ export interface StoryMetadata {
   wordCount: number;
   qualityScore: number;
   ethicalApproval: boolean;
-  agentContributions: Record<
-    string,
-    { provider: string; tokens: number; role: string }
-  >;
+  agentContributions: Record<string, { provider: string; role: string }>;
   ucfSnapshot: {
     harmony: number;
     prana: number;
@@ -298,7 +295,7 @@ Begin the story directly—no meta-commentary.`,
 
     // Step 8: Claude (Quality Assessment)
     const claudeSetup = agentSetup.get("claude");
-    let qualityScore = 0.85;
+    let qualityScore = 0;
 
     if (claudeSetup) {
       await reportStage(options, "review", 86);
@@ -321,9 +318,9 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
         options.signal
       );
 
-      const scoreMatch = qualityAssessment.match(/0\.\d+|1\.0/);
+      const scoreMatch = qualityAssessment.match(/(?:0(?:\.\d+)?|1(?:\.0+)?)/);
       if (scoreMatch) {
-        qualityScore = parseFloat(scoreMatch[0]);
+        qualityScore = Math.min(1, Math.max(0, parseFloat(scoreMatch[0])));
       }
 
       console.log(`[Z-88 Multi] Claude assessment: ${qualityScore}`);
@@ -331,7 +328,7 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
 
     // Step 9: Kavach (Ethical Review)
     const kavachSetup = agentSetup.get("kavach");
-    let ethicalApproval = true;
+    let ethicalApproval = false;
 
     if (kavachSetup) {
       await reportStage(options, "review", 91);
@@ -339,25 +336,26 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
         kavachSetup.config,
         kavachSetup.provider,
         0.2,
-        `Review this story for ethical compliance with Tony Accords v13.4:
-- Nonmaleficence (do no harm)
-- Autonomy (respect agency)
-- Compassion (empathic resonance)
-- Humility (acknowledge limitations)
+        `Perform an advisory content-risk review of this fiction draft. Check for:
+- sexual content involving minors
+- targeted dehumanization of protected groups
+- actionable instructions for serious wrongdoing
+- accidental disclosure of private personal information
+- other severe content risks a writer should inspect before sharing
 
 Story excerpt:
 ${finalStory.content.substring(0, 1500)}...
 
-Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`,
+Respond with ONLY "PASS" or "FLAGGED" followed by brief reasoning. This is an advisory flag, not a guarantee.`,
         options.signal
       );
 
-      const normalizedReview = ethicalReview.toUpperCase();
+      const normalizedReview = ethicalReview.trim().toUpperCase();
       ethicalApproval =
-        normalizedReview.includes("APPROVED") &&
-        !normalizedReview.includes("REJECTED");
+        normalizedReview.startsWith("PASS") &&
+        !normalizedReview.startsWith("FLAGGED");
       console.log(
-        `[Z-88 Multi] Kavach review: ${ethicalApproval ? "APPROVED" : "REJECTED"}`
+        `[Z-88 Multi] Kavach advisory: ${ethicalApproval ? "PASS" : "FLAGGED"}`
       );
     }
 
@@ -372,12 +370,11 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`,
 
     const agentContributions: Record<
       string,
-      { provider: string; tokens: number; role: string }
+      { provider: string; role: string }
     > = {};
     agentSetup.forEach((setup, agentId) => {
       agentContributions[agentId] = {
         provider: setup.provider,
-        tokens: 0, // Would track actual tokens in production
         role: setup.config.role,
       };
     });
@@ -391,12 +388,12 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`,
       ethicalApproval,
       agentContributions,
       ucfSnapshot: {
-        harmony: 0.68 + (qualityScore - 0.85) * 0.2,
-        prana: 0.75,
-        drishti: 0.8,
-        klesha: ethicalApproval ? 0.02 : 0.15,
-        resilience: 1.1,
-        zoom: 1.15,
+        harmony: 0,
+        prana: 0,
+        drishti: 0,
+        klesha: 0,
+        resilience: 0,
+        zoom: 0,
       },
     };
 
