@@ -1,10 +1,10 @@
 # Samsarix Story Studio
 
-Samsarix Story Studio is a local-first manuscript workspace from Samsarix LLC for writers who want explicit control over both their story canon and a bounded, multi-stage AI drafting process. Build a project, record characters and world rules, turn planned chapters into drafts without duplicating them, preview the exact canon entries selected for a chapter, recover prior revisions, and export or restore portable files.
+Samsarix Story Studio is a local-first manuscript workspace from Samsarix LLC for writers who want explicit control over story canon and a bounded, multi-stage AI drafting process. Build a project, organize ordered scene beats, turn planned chapters into drafts without duplicating them, preview the exact canon selected for a chapter, recover prior revisions, tag and favorite chapters, and export or restore portable files.
 
 The default experience is a deterministic, no-key demo. It does not call an AI provider and is labeled as demo output throughout the interface. Add one supported provider key to use the provider-backed workflow; missing preferred providers fall back to the provider you configured.
 
-This repository is a coherent local product candidate. It is not a hosted collaboration service, a desktop installer, or a scientific consciousness system. The retained “UCF” values are legacy creative-process heuristics, not measurements of consciousness or guarantees of quality or safety.
+This repository is a coherent local product candidate. It is not a hosted collaboration service, a desktop installer, or a scientific consciousness system. Legacy UCF/database fields remain readable for storage and backup compatibility but are not part of the active product interface or represented as evidence.
 
 ## Quick start
 
@@ -28,12 +28,12 @@ Set `SAMSARIX_DATA_FILE` to choose another location. Existing default data at `.
 ## Primary workflow
 
 1. Create a project with a premise, genre, and optional style guidance.
-2. Add empty chapter plans with working titles and synopsis notes, track each as planned, drafting, revising, or complete, and reorder the manuscript with drag or accessible move buttons.
+2. Add empty chapter plans with working titles and synopsis notes, track each as planned, drafting, revising, or complete, and reorder the manuscript with drag or accessible move buttons. Add and order scene cards with a beat, optional point of view, and location.
 3. Add characters, locations, factions, items, or lore to its canon. Entries can be always-on or activated by names and phrases.
 4. Write a planned chapter manually, or choose **Draft this plan** to complete that exact chapter in the studio while preserving its title, position, and continuity links. Before generation, review the selected canon entries and approximate context-token count; manually include any additional entry.
 5. Choose a preset or enable up to seven agent roles, then create a clearly labeled demo or provider-backed draft.
 6. Edit the chapter directly. Every changed save keeps the prior title and manuscript—even a blank planned draft—as a recoverable revision; the newest 50 snapshots per chapter are retained.
-7. Continue the manuscript, reopen any planned or drafted chapter from the archive, export combined Markdown, or download a versioned project JSON backup.
+7. Continue the manuscript, tag or favorite chapters, find them from the archive, export combined Markdown, or download a versioned project JSON backup.
 8. Restore a backup from the Projects page. The file is validated first and imported as a separate project, so existing work is never overwritten.
 
 Standalone drafts remain supported when a project would be unnecessary.
@@ -84,17 +84,18 @@ Local JSON storage is designed for one process and one trusted desktop user. It 
 
 ## Commands
 
-| Command            | Purpose                                                    |
-| ------------------ | ---------------------------------------------------------- |
-| `pnpm dev`         | Run the local development server with reload               |
-| `pnpm build`       | Build the browser app and bundled server                   |
-| `pnpm start`       | Run the production build on the configured host/port       |
-| `pnpm lint`        | Check repository formatting                                |
-| `pnpm check`       | Run strict TypeScript checking on the active product graph |
-| `pnpm test`        | Run focused Vitest suites                                  |
-| `pnpm verify`      | Run format check, type-check, tests, and production build  |
-| `pnpm db:generate` | Generate a Drizzle migration after schema changes          |
-| `pnpm db:migrate`  | Apply MySQL migrations                                     |
+| Command               | Purpose                                                     |
+| --------------------- | ----------------------------------------------------------- |
+| `pnpm dev`            | Run the local development server with reload                |
+| `pnpm build`          | Build the browser app and bundled server                    |
+| `pnpm start`          | Run the production build on the configured host/port        |
+| `pnpm lint`           | Check repository formatting                                 |
+| `pnpm check`          | Run strict TypeScript checking on the active product graph  |
+| `pnpm test`           | Run focused Vitest suites                                   |
+| `pnpm verify`         | Run format check, type-check, tests, and production build   |
+| `pnpm package:source` | Package a clean committed source tree with SHA-256 metadata |
+| `pnpm db:generate`    | Generate a Drizzle migration after schema changes           |
+| `pnpm db:migrate`     | Apply MySQL migrations                                      |
 
 The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint exposes mode and configured provider names/models, never credential values.
 
@@ -104,19 +105,19 @@ The HTTP health endpoint is `GET /healthz`. The public tRPC status endpoint expo
 - Local projects, canon, revisions, and stories can contain sensitive text; protect and back up the data file accordingly.
 - Generation-job history contains lifecycle metadata and story/project identifiers, not prompts or draft text; the newest 100 terminal jobs per local writer are retained.
 - In provider mode, prompts, intermediate material, and drafts are sent to the configured provider. Review that provider’s retention and training terms.
-- Generated text can be incorrect, biased, derivative, or unwanted. “Quality,” “ethical review,” and UCF metadata are advisory heuristics only.
+- Generated text can be incorrect, biased, derivative, or unwanted. Quality and content checks appear only when their configured provider-backed reviewer ran; they are advisory signals, not guarantees. Demo mode records no review result.
 - Prompt validation, story ownership checks, loopback enforcement, body limits, timeouts, retry limits, and call ceilings reduce risk; they do not make hosted multi-user operation production-ready.
 - Project imports accept only the versioned Samsarix backup shape, reject inconsistent references, and cap selected files at 7 MB. Imported ownership and database IDs are always replaced.
 
 ## Scope and known limitations
 
-The release intentionally does not include token streaming, scene-level cards, public sharing, PDF/EPUB export, billing, or collaboration. Chapter planning is currently manuscript-level: a chapter has one synopsis and status rather than an ordered list of scenes. Archive search is client-side and suited to a personal library. Backup restore always creates a new project; merging into or replacing an existing project is intentionally unsupported. Live provider calls require owner-supplied credentials and were not exercised during credential-free verification.
+The release intentionally does not include token streaming, public sharing, PDF/EPUB export, billing, collaboration, or a desktop installer. Archive search is client-side and suited to a personal library. Backup restore always creates a new project; merging into or replacing an existing project is intentionally unsupported. Live provider calls require owner-supplied credentials and spend approval and were not exercised during credential-free verification.
 
 Legacy component examples remain outside the active TypeScript and runtime graph so historical UI source is preserved without making it part of the release contract. Incomplete QoL helpers and private-platform runtime adapters were removed. Future cleanup is tracked in [the productization record](docs/PRODUCTIZATION.md).
 
 ## Development and release notes
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow, [DEPLOYMENT.md](DEPLOYMENT.md) for local operation and advanced self-hosting boundaries, [SECURITY.md](SECURITY.md) for private vulnerability reporting, and [docs/PRODUCTIZATION.md](docs/PRODUCTIZATION.md) for the audit, decisions, verification evidence, risks, and deferred work.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow, [DEPLOYMENT.md](DEPLOYMENT.md) for operation boundaries, [docs/PILOT.md](docs/PILOT.md) for the writer-pilot protocol, [docs/EXTERNAL_VERIFICATION.md](docs/EXTERNAL_VERIFICATION.md) for provider/MySQL checks, [docs/LEGAL_REVIEW.md](docs/LEGAL_REVIEW.md) for counsel handoff, [SECURITY.md](SECURITY.md) for private vulnerability reporting, and [docs/PRODUCTIZATION.md](docs/PRODUCTIZATION.md) for the product audit.
 
 No deployment, package publication, account creation, or paid provider request is performed by the repository setup.
 

@@ -5,6 +5,7 @@
 # Build outputs
 dist/
 build/
+artifacts/
 *.dist
 
 # Local browser-QA artifacts
