@@ -124,11 +124,11 @@ The duplicate resolver processes started by those four independent baseline comm
 - [x] Draft editing with capped, recoverable version history.
 - [x] Project import/restore with validation and conflict-safe identity remapping.
 - [x] Chapter planning and explicit, continuity-safe chapter ordering.
-- Scene-level cards within chapters.
+- [x] Scene-level cards within chapters.
 - [x] Durable generation jobs, live server-authored stage progress, reconnect, restart recovery, and user cancellation.
-- Tags, collections, and favorites after their incomplete backend is designed; basic archive search is included now.
+- [x] Bounded story tags and favorites with archive search/filtering. Collections remain a separate future design.
 - Local-model adapters such as Ollama or an OpenAI-compatible base URL.
-- Accessibility testing with assistive technology and cross-browser visual QA.
+- [x] Keyboard/semantic accessibility review and Chromium/Firefox visual QA; formal screen-reader testing remains an external release gate.
 
 ## Implementation checklist
 
@@ -192,7 +192,7 @@ Environment: Windows, Node.js `v24.12.0`, pnpm `11.16.0`. CI uses the documented
 | `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                                                                                                                                                                                                                      |
 | `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                                                                                                                                                                                                           |
 | `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                                                                                                                       |
-| `pnpm test`                      | Passed; 5 files and 24 behavioral tests, including scene CRUD/order and prompt inclusion, tags/favorites, backup round trips, in-place planned drafting, cancellation, ownership, revisions, continuation, and local archive migration.                                                            |
+| `pnpm test`                      | Passed; 5 files and 27 behavioral tests, including atomic scene CRUD/order and prompt inclusion, tags/favorites, backup validation and round trips, in-place planned drafting, cancellation, ownership, revisions, continuation, and local archive migrations.                                     |
 | `pnpm build`                     | Passed; 1,845 client modules and the bundled server production artifact were emitted.                                                                                                                                                                                                              |
 | `pnpm audit`                     | Passed; no known vulnerabilities in production or development dependencies.                                                                                                                                                                                                                        |
 | `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                                                                                                                 |

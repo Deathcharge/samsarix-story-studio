@@ -21,10 +21,23 @@ import { trpc } from "@/lib/trpc";
 export default function Archive() {
   const [query, setQuery] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [pendingFavoriteIds, setPendingFavoriteIds] = useState<Set<number>>(
+    () => new Set()
+  );
   const utils = trpc.useUtils();
   const storiesQuery = trpc.stories.list.useQuery();
   const organizationMutation = trpc.stories.updateOrganization.useMutation({
     onSuccess: () => utils.stories.list.invalidate(),
+    onMutate: variables => {
+      setPendingFavoriteIds(current => new Set(current).add(variables.id));
+    },
+    onSettled: (_data, _error, variables) => {
+      setPendingFavoriteIds(current => {
+        const next = new Set(current);
+        next.delete(variables.id);
+        return next;
+      });
+    },
   });
   const stories = storiesQuery.data ?? [];
   const filteredStories = useMemo(() => {
@@ -155,7 +168,7 @@ export default function Archive() {
                       variant="ghost"
                       aria-label={`${story.isFavorite ? "Remove" : "Add"} ${story.title} ${story.isFavorite ? "from" : "to"} favorites`}
                       aria-pressed={story.isFavorite}
-                      disabled={organizationMutation.isPending}
+                      disabled={pendingFavoriteIds.has(story.id)}
                       onClick={() =>
                         organizationMutation.mutate({
                           id: story.id,

@@ -318,9 +318,9 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
         options.signal
       );
 
-      const scoreMatch = qualityAssessment.match(/(?:0(?:\.\d+)?|1(?:\.0+)?)/);
-      if (scoreMatch) {
-        qualityScore = Math.min(1, Math.max(0, parseFloat(scoreMatch[0])));
+      const scoreText = qualityAssessment.trim();
+      if (/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(scoreText)) {
+        qualityScore = Number(scoreText);
       }
 
       console.log(`[Z-88 Multi] Claude assessment: ${qualityScore}`);
@@ -351,9 +351,8 @@ Respond with ONLY "PASS" or "FLAGGED" followed by brief reasoning. This is an ad
       );
 
       const normalizedReview = ethicalReview.trim().toUpperCase();
-      ethicalApproval =
-        normalizedReview.startsWith("PASS") &&
-        !normalizedReview.startsWith("FLAGGED");
+      const reviewStatus = normalizedReview.match(/^(PASS|FLAGGED)\b/)?.[1];
+      ethicalApproval = reviewStatus === "PASS";
       console.log(
         `[Z-88 Multi] Kavach advisory: ${ethicalApproval ? "PASS" : "FLAGGED"}`
       );

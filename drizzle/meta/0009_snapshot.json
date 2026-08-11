@@ -394,7 +394,7 @@
             "status",
             "createdAt"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {

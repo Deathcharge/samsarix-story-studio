@@ -469,6 +469,33 @@ describe("primary local story journey", () => {
         storyId: crossing.id,
       })
     ).rejects.toThrow();
+    await expect(
+      caller.projects.createScene({
+        projectId: unrelatedProject.id,
+        storyId: crossing.id,
+        title: "Smuggled scene",
+        summary: "A scene cannot attach across project boundaries.",
+      })
+    ).rejects.toThrow();
+
+    const otherChapterScene = await caller.projects.createScene({
+      projectId: project.id,
+      storyId: departure.id,
+      title: "Departure watch",
+      summary: "The crew checks the horizon before leaving.",
+    });
+    await expect(
+      caller.projects.reorderScenes({
+        projectId: project.id,
+        storyId: crossing.id,
+        orderedSceneIds: [arrival.id, otherChapterScene.id],
+      })
+    ).rejects.toThrow();
+    expect(
+      (await caller.projects.get({ id: project.id })).stories[0].scenes.map(
+        scene => scene.id
+      )
+    ).toEqual([ledger.id, arrival.id]);
   });
 
   it("drafts planned chapters in place without duplicating or breaking continuity", async () => {

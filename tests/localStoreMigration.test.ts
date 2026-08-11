@@ -27,6 +27,9 @@ async function loadArchive(archive: unknown) {
         projectId: number | null;
         draftStatus: string;
         synopsis: string | null;
+        tags: string | null;
+        isFavorite: number;
+        deletedAt: string | null;
       }>;
     },
   };
@@ -70,6 +73,9 @@ describe("local archive migration", () => {
       projectId: null,
       draftStatus: "drafting",
       synopsis: null,
+      tags: null,
+      isFavorite: 0,
+      deletedAt: null,
     });
   });
 
@@ -113,6 +119,9 @@ describe("local archive migration", () => {
       projectId: 1,
       draftStatus: "drafting",
       synopsis: null,
+      tags: null,
+      isFavorite: 0,
+      deletedAt: null,
     });
   });
 
@@ -143,7 +152,7 @@ describe("local archive migration", () => {
         },
       ],
       projects: [],
-      stories: [],
+      stories: [{ id: 1, userId: 1, projectId: null, title: "Queued story" }],
       canonEntries: [],
       storyRevisions: [],
       ucfStates: [],
@@ -154,6 +163,11 @@ describe("local archive migration", () => {
       version: 5,
       generationJobs: [],
       storyScenes: [],
+    });
+    expect(persisted.stories[0]).toMatchObject({
+      tags: null,
+      isFavorite: 0,
+      deletedAt: null,
     });
 
     const dataPath = process.env.SAMSARIX_DATA_FILE!;
@@ -191,5 +205,62 @@ describe("local archive migration", () => {
     expect(recovered.generationJobs[0].completedAt).toBeTruthy();
     expect(recovered.generationJobs[0]).not.toHaveProperty("prompt");
     expect(recovered.generationJobs[0]).not.toHaveProperty("content");
+  });
+
+  it("preserves populated version-4 collections while adding scene storage", async () => {
+    const now = new Date("2026-08-03T12:00:00Z").toISOString();
+    const { persisted } = await loadArchive({
+      version: 4,
+      nextIds: {
+        users: 2,
+        projects: 2,
+        stories: 2,
+        canonEntries: 2,
+        storyRevisions: 2,
+        ucfStates: 1,
+        agentLogs: 1,
+      },
+      users: [
+        {
+          id: 1,
+          openId: "local-writer",
+          name: "Version Four Writer",
+          role: "admin",
+          createdAt: now,
+          updatedAt: now,
+          lastSignedIn: now,
+        },
+      ],
+      projects: [{ id: 1, userId: 1, title: "Preserved project" }],
+      stories: [
+        {
+          id: 1,
+          userId: 1,
+          projectId: 1,
+          title: "Preserved story",
+          tags: '["kept"]',
+          isFavorite: 1,
+          deletedAt: null,
+        },
+      ],
+      canonEntries: [{ id: 1, projectId: 1, userId: 1, name: "Kept canon" }],
+      storyRevisions: [
+        { id: 1, storyId: 1, userId: 1, title: "Kept revision" },
+      ],
+      generationJobs: [{ id: "gen_kept", userId: 1, status: "completed" }],
+      ucfStates: [],
+      agentLogs: [],
+    });
+
+    expect(persisted).toMatchObject({
+      version: 5,
+      nextIds: { storyScenes: 1 },
+      storyScenes: [],
+      projects: [{ id: 1, title: "Preserved project" }],
+      stories: [{ id: 1, title: "Preserved story", isFavorite: 1 }],
+      canonEntries: [{ id: 1, name: "Kept canon" }],
+      storyRevisions: [{ id: 1, title: "Kept revision" }],
+      generationJobs: [{ id: "gen_kept", status: "completed" }],
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -23,6 +23,7 @@ export type SceneCardData = {
   position: number;
   pov: string | null;
   location: string | null;
+  updatedAt: Date;
 };
 
 function SceneEditor({
@@ -33,20 +34,15 @@ function SceneEditor({
 }: {
   scene: SceneCardData;
   disabled: boolean;
-  onSave: (fields: Omit<SceneCardData, "id" | "position">) => void;
+  onSave: (
+    fields: Omit<SceneCardData, "id" | "position" | "updatedAt">
+  ) => void;
   onDelete: () => void;
 }) {
   const [title, setTitle] = useState(scene.title);
   const [summary, setSummary] = useState(scene.summary);
   const [pov, setPov] = useState(scene.pov ?? "");
   const [location, setLocation] = useState(scene.location ?? "");
-
-  useEffect(() => {
-    setTitle(scene.title);
-    setSummary(scene.summary);
-    setPov(scene.pov ?? "");
-    setLocation(scene.location ?? "");
-  }, [scene.location, scene.pov, scene.summary, scene.title]);
 
   const changed =
     title.trim() !== scene.title ||
@@ -168,6 +164,7 @@ export function ScenePlan({
   const utils = trpc.useUtils();
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
+  const atSceneLimit = scenes.length >= 100;
   const refresh = () => utils.projects.get.invalidate({ id: projectId });
   const createScene = trpc.projects.createScene.useMutation({
     onSuccess: async () => {
@@ -248,6 +245,7 @@ export function ScenePlan({
                         ) : null}
                       </div>
                       <SceneEditor
+                        key={`${scene.id}:${scene.updatedAt.getTime()}`}
                         scene={scene}
                         disabled={
                           updateScene.isPending || deleteScene.isPending
@@ -305,6 +303,7 @@ export function ScenePlan({
           <Input
             value={title}
             maxLength={255}
+            disabled={atSceneLimit}
             placeholder="Scene title"
             aria-label="New scene title"
             onChange={event => setTitle(event.target.value)}
@@ -313,6 +312,7 @@ export function ScenePlan({
             value={summary}
             maxLength={4_000}
             rows={3}
+            disabled={atSceneLimit}
             placeholder="What changes in this scene?"
             aria-label="New scene beat or outcome"
             onChange={event => setSummary(event.target.value)}
@@ -322,7 +322,7 @@ export function ScenePlan({
             disabled={
               !title.trim() ||
               !summary.trim() ||
-              scenes.length >= 100 ||
+              atSceneLimit ||
               createScene.isPending
             }
             onClick={() =>
@@ -341,6 +341,11 @@ export function ScenePlan({
             )}
             Add scene
           </Button>
+          {atSceneLimit ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              This chapter has reached the 100-scene limit.
+            </p>
+          ) : null}
         </div>
         {error ? (
           <p role="alert" className="text-xs text-destructive">

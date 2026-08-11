@@ -194,6 +194,12 @@ function migrateState(
       nextIds: { ...parsed.nextIds, storyScenes: 1 },
       generationJobs: [],
       storyScenes: [],
+      stories: parsed.stories.map(story => ({
+        ...story,
+        tags: story.tags ?? null,
+        isFavorite: story.isFavorite ?? 0,
+        deletedAt: story.deletedAt ?? null,
+      })),
     };
   }
   if (parsed.version === 2) {
@@ -207,6 +213,9 @@ function migrateState(
         ...story,
         draftStatus: DEFAULT_CHAPTER_STATUS,
         synopsis: null,
+        tags: story.tags ?? null,
+        isFavorite: story.isFavorite ?? 0,
+        deletedAt: story.deletedAt ?? null,
       })),
     };
   }
@@ -232,6 +241,9 @@ function migrateState(
       projectId: null,
       draftStatus: DEFAULT_CHAPTER_STATUS,
       synopsis: null,
+      tags: story.tags ?? null,
+      isFavorite: story.isFavorite ?? 0,
+      deletedAt: story.deletedAt ?? null,
     })),
     canonEntries: [],
     storyRevisions: [],
@@ -951,7 +963,7 @@ export async function updateStory(
 export async function updateStoryOrganization(
   id: number,
   userId: number,
-  data: Pick<InsertStory, "tags" | "isFavorite">
+  data: Required<Pick<InsertStory, "tags" | "isFavorite">>
 ) {
   return mutate(state => {
     const story = state.stories.find(
@@ -1112,13 +1124,14 @@ export async function reorderStoryScenes(
     const scenes = state.storyScenes.filter(
       scene => scene.storyId === storyId && scene.userId === userId
     );
+    const byId = new Map(scenes.map(scene => [scene.id, scene]));
     if (
       scenes.length !== orderedSceneIds.length ||
-      new Set(orderedSceneIds).size !== orderedSceneIds.length
+      new Set(orderedSceneIds).size !== orderedSceneIds.length ||
+      orderedSceneIds.some(id => !byId.has(id))
     ) {
       return false;
     }
-    const byId = new Map(scenes.map(scene => [scene.id, scene]));
     const now = new Date();
     for (const [index, id] of orderedSceneIds.entries()) {
       const scene = byId.get(id);

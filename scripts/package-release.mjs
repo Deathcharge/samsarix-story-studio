@@ -5,9 +5,6 @@ import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 const root = process.cwd();
-const packageJson = JSON.parse(
-  await readFile(path.join(root, "package.json"), "utf8")
-);
 const runGit = (...args) => {
   const result = spawnSync("git", args, {
     cwd: root,
@@ -15,11 +12,17 @@ const runGit = (...args) => {
     windowsHide: true,
   });
   if (result.status !== 0) {
-    throw new Error(result.stderr.trim() || `git ${args.join(" ")} failed`);
+    throw new Error(
+      result.error?.message ||
+        result.stderr?.trim() ||
+        "git " + args.join(" ") + " failed"
+    );
   }
   return result.stdout.trim();
 };
 
+const commit = runGit("rev-parse", "HEAD");
+const packageJson = JSON.parse(runGit("show", commit + ":package.json"));
 const dirty = runGit("status", "--porcelain", "--untracked-files=no");
 if (dirty && process.env.ALLOW_DIRTY_PACKAGE !== "1") {
   throw new Error(
@@ -27,7 +30,6 @@ if (dirty && process.env.ALLOW_DIRTY_PACKAGE !== "1") {
   );
 }
 
-const commit = runGit("rev-parse", "HEAD");
 const artifactDirectory = path.join(root, "artifacts");
 const baseName = `${packageJson.name}-v${packageJson.version}-source`;
 const archivePath = path.join(artifactDirectory, `${baseName}.zip`);
@@ -40,12 +42,14 @@ const archive = spawnSync(
     "--format=zip",
     `--prefix=${packageJson.name}-${packageJson.version}/`,
     `--output=${archivePath}`,
-    "HEAD",
+    commit,
   ],
   { cwd: root, encoding: "utf8", windowsHide: true }
 );
 if (archive.status !== 0) {
-  throw new Error(archive.stderr.trim() || "git archive failed");
+  throw new Error(
+    archive.error?.message || archive.stderr?.trim() || "git archive failed"
+  );
 }
 
 const digest = createHash("sha256")

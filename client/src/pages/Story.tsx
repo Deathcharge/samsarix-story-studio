@@ -17,6 +17,10 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { CHAPTER_STATUS_LABELS } from "@shared/chapterPlanning";
+import {
+  MAX_STORY_TAG_LENGTH,
+  MAX_STORY_TAGS,
+} from "@shared/storyOrganization";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -349,7 +353,10 @@ export default function Story() {
                 <Input
                   id="story-tags"
                   value={tagText}
-                  maxLength={407}
+                  maxLength={
+                    MAX_STORY_TAGS * MAX_STORY_TAG_LENGTH +
+                    (MAX_STORY_TAGS - 1) * 2
+                  }
                   placeholder="mystery, revision, act-one"
                   onChange={event => setTagText(event.target.value)}
                   aria-describedby="story-tags-help"
@@ -358,7 +365,8 @@ export default function Story() {
                   id="story-tags-help"
                   className="text-xs text-muted-foreground"
                 >
-                  Up to 12 comma-separated tags, 32 characters each.
+                  Up to {MAX_STORY_TAGS} comma-separated tags,{" "}
+                  {MAX_STORY_TAG_LENGTH} characters each.
                 </p>
               </div>
               <Button

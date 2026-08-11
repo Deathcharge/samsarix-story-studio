@@ -102,10 +102,10 @@ export function prepareProjectImport(backup: ProjectBackup): ProjectImportPlan {
           })),
         scenes: [...story.scenes]
           .sort((left, right) => left.position - right.position)
-          .map(scene => ({
+          .map((scene, index) => ({
             title: scene.title,
             summary: scene.summary,
-            position: scene.position,
+            position: index + 1,
             pov: scene.pov,
             location: scene.location,
             createdAt: scene.createdAt,

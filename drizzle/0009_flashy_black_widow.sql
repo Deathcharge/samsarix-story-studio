@@ -16,5 +16,5 @@ CREATE TABLE `storyScenes` (
 ALTER TABLE `storyScenes` ADD CONSTRAINT `storyScenes_storyId_stories_id_fk` FOREIGN KEY (`storyId`) REFERENCES `stories`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `storyScenes` ADD CONSTRAINT `storyScenes_projectId_projects_id_fk` FOREIGN KEY (`projectId`) REFERENCES `projects`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `storyScenes` ADD CONSTRAINT `storyScenes_userId_users_id_fk` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX `storyScenes_story_position_idx` ON `storyScenes` (`storyId`,`position`);--> statement-breakpoint
+CREATE UNIQUE INDEX `storyScenes_story_position_idx` ON `storyScenes` (`storyId`,`position`);--> statement-breakpoint
 CREATE INDEX `storyScenes_project_user_idx` ON `storyScenes` (`projectId`,`userId`);

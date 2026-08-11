@@ -361,6 +361,10 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         await requireProject(input.projectId, ctx.user.id);
+        const story = await db.getStoryById(input.storyId, ctx.user.id);
+        if (!story || story.projectId !== input.projectId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
         const created = await db.createStoryScene({
           projectId: input.projectId,
           storyId: input.storyId,

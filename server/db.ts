@@ -821,7 +821,7 @@ export async function updateStory(
 export async function updateStoryOrganization(
   id: number,
   userId: number,
-  data: Pick<InsertStory, "tags" | "isFavorite">
+  data: Required<Pick<InsertStory, "tags" | "isFavorite">>
 ) {
   if (getStorageMode() === "local-file") {
     return localStore.updateStoryOrganization(id, userId, data);
@@ -925,7 +925,8 @@ export async function createStoryScene(input: {
           isNull(stories.deletedAt)
         )
       )
-      .limit(1);
+      .limit(1)
+      .for("update");
     if (!story[0]) return null;
     const existing = await transaction
       .select({ id: storyScenes.id })
@@ -1013,6 +1014,19 @@ export async function deleteStoryScene(
   }
   const connection = await requireDb();
   return connection.transaction(async transaction => {
+    const story = await transaction
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, storyId),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1)
+      .for("update");
+    if (!story[0]) return false;
     const existing = await transaction
       .select({ projectId: storyScenes.projectId })
       .from(storyScenes)
@@ -1035,6 +1049,10 @@ export async function deleteStoryScene(
       .orderBy(asc(storyScenes.position));
     if (remaining.length > 0) {
       const ids = remaining.map(scene => scene.id);
+      await transaction
+        .update(storyScenes)
+        .set({ position: sql<number>`-${storyScenes.id}` })
+        .where(inArray(storyScenes.id, ids));
       await transaction
         .update(storyScenes)
         .set({ position: scenePositionOrderCase(ids) })
@@ -1075,7 +1093,8 @@ export async function reorderStoryScenes(
           isNull(stories.deletedAt)
         )
       )
-      .limit(1);
+      .limit(1)
+      .for("update");
     if (!story[0]?.projectId) return false;
     const scenes = await transaction
       .select({ id: storyScenes.id })
@@ -1091,6 +1110,10 @@ export async function reorderStoryScenes(
       return false;
     }
     if (orderedSceneIds.length > 0) {
+      await transaction
+        .update(storyScenes)
+        .set({ position: sql<number>`-${storyScenes.id}` })
+        .where(inArray(storyScenes.id, orderedSceneIds));
       await transaction
         .update(storyScenes)
         .set({ position: scenePositionOrderCase(orderedSceneIds) })

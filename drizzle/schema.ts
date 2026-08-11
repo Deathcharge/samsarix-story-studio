@@ -6,6 +6,7 @@ import {
   mysqlTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core";
 import {
@@ -126,7 +127,10 @@ export const storyScenes = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [
-    index("storyScenes_story_position_idx").on(table.storyId, table.position),
+    uniqueIndex("storyScenes_story_position_idx").on(
+      table.storyId,
+      table.position
+    ),
     index("storyScenes_project_user_idx").on(table.projectId, table.userId),
   ]
 );
