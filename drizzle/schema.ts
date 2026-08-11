@@ -6,6 +6,7 @@ import {
   mysqlTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core";
 import {
@@ -93,7 +94,7 @@ export const stories = mysqlTable("stories", {
     .default(DEFAULT_CHAPTER_STATUS)
     .notNull(),
   synopsis: text("synopsis"),
-  // Reserved legacy organization fields; not exposed by the local MVP.
+  // Writer-controlled organization fields.
   collectionId: int("collectionId"),
   tags: text("tags"), // JSON array of tag strings
   isFavorite: int("isFavorite").notNull().default(0), // 1 = true, 0 = false
@@ -102,6 +103,40 @@ export const stories = mysqlTable("stories", {
 
 export type Story = typeof stories.$inferSelect;
 export type InsertStory = typeof stories.$inferInsert;
+
+/** Ordered, writer-authored beats used to guide an individual chapter. */
+export const storyScenes = mysqlTable(
+  "storyScenes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id),
+    projectId: int("projectId")
+      .notNull()
+      .references(() => projects.id),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id),
+    title: varchar("title", { length: 255 }).notNull(),
+    summary: text("summary").notNull(),
+    position: int("position").notNull(),
+    pov: varchar("pov", { length: 255 }),
+    location: varchar("location", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("storyScenes_story_position_idx").on(
+      table.storyId,
+      table.position
+    ),
+    index("storyScenes_project_user_idx").on(table.projectId, table.userId),
+  ]
+);
+
+export type StoryScene = typeof storyScenes.$inferSelect;
+export type InsertStoryScene = typeof storyScenes.$inferInsert;
 
 /**
  * Writer-authored source-of-truth notes. Activation keys make the context

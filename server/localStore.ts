@@ -10,11 +10,13 @@ import type {
   InsertGenerationJob,
   InsertProject,
   InsertStory,
+  InsertStoryScene,
   InsertStoryRevision,
   InsertUcfState,
   InsertUser,
   Project,
   Story,
+  StoryScene,
   StoryRevision,
   UcfState,
   User,
@@ -30,13 +32,14 @@ import {
 } from "./plannedChapter";
 
 type LocalState = {
-  version: 4;
+  version: 5;
   nextIds: {
     users: number;
     projects: number;
     stories: number;
     canonEntries: number;
     storyRevisions: number;
+    storyScenes: number;
     ucfStates: number;
     agentLogs: number;
   };
@@ -45,12 +48,24 @@ type LocalState = {
   stories: Story[];
   canonEntries: CanonEntry[];
   storyRevisions: StoryRevision[];
+  storyScenes: StoryScene[];
   generationJobs: GenerationJob[];
   ucfStates: UcfState[];
   agentLogs: AgentLog[];
 };
 
-type LegacyLocalStateV3 = Omit<LocalState, "version" | "generationJobs"> & {
+type LegacyLocalStateV4 = Omit<
+  LocalState,
+  "version" | "storyScenes" | "nextIds"
+> & {
+  version: 4;
+  nextIds: Omit<LocalState["nextIds"], "storyScenes">;
+};
+
+type LegacyLocalStateV3 = Omit<
+  LegacyLocalStateV4,
+  "version" | "generationJobs"
+> & {
   version: 3;
 };
 
@@ -120,13 +135,14 @@ function reviveDates(value: unknown): unknown {
 function createInitialState(): LocalState {
   const now = new Date();
   return {
-    version: 4,
+    version: 5,
     nextIds: {
       users: 2,
       projects: 1,
       stories: 1,
       canonEntries: 1,
       storyRevisions: 1,
+      storyScenes: 1,
       ucfStates: 1,
       agentLogs: 1,
     },
@@ -147,6 +163,7 @@ function createInitialState(): LocalState {
     stories: [],
     canonEntries: [],
     storyRevisions: [],
+    storyScenes: [],
     generationJobs: [],
     ucfStates: [],
     agentLogs: [],
@@ -156,23 +173,49 @@ function createInitialState(): LocalState {
 function migrateState(
   parsed:
     | LocalState
+    | LegacyLocalStateV4
     | LegacyLocalStateV3
     | LegacyLocalStateV2
     | LegacyLocalStateV1
 ): LocalState {
-  if (parsed.version === 4) return parsed;
+  if (parsed.version === 5) return parsed;
+  if (parsed.version === 4) {
+    return {
+      ...parsed,
+      version: 5,
+      nextIds: { ...parsed.nextIds, storyScenes: 1 },
+      storyScenes: [],
+    };
+  }
   if (parsed.version === 3) {
-    return { ...parsed, version: 4, generationJobs: [] };
+    return {
+      ...parsed,
+      version: 5,
+      nextIds: { ...parsed.nextIds, storyScenes: 1 },
+      generationJobs: [],
+      storyScenes: [],
+      stories: parsed.stories.map(story => ({
+        ...story,
+        tags: story.tags ?? null,
+        isFavorite: story.isFavorite ?? 0,
+        deletedAt: story.deletedAt ?? null,
+      })),
+    };
   }
   if (parsed.version === 2) {
     return {
       ...parsed,
-      version: 4,
+      version: 5,
+      nextIds: { ...parsed.nextIds, storyScenes: 1 },
       generationJobs: [],
+      storyScenes: [],
       stories: parsed.stories.map(story => ({
         ...story,
         draftStatus: DEFAULT_CHAPTER_STATUS,
         synopsis: null,
+        tags: story.tags ?? null,
+        isFavorite: story.isFavorite ?? 0,
+        deletedAt: story.deletedAt ?? null,
       })),
     };
   }
@@ -184,12 +227,13 @@ function migrateState(
 
   return {
     ...parsed,
-    version: 4,
+    version: 5,
     nextIds: {
       ...parsed.nextIds,
       projects: 1,
       canonEntries: 1,
       storyRevisions: 1,
+      storyScenes: 1,
     },
     projects: [],
     stories: parsed.stories.map(story => ({
@@ -197,9 +241,13 @@ function migrateState(
       projectId: null,
       draftStatus: DEFAULT_CHAPTER_STATUS,
       synopsis: null,
+      tags: story.tags ?? null,
+      isFavorite: story.isFavorite ?? 0,
+      deletedAt: story.deletedAt ?? null,
     })),
     canonEntries: [],
     storyRevisions: [],
+    storyScenes: [],
     generationJobs: [],
   };
 }
@@ -245,12 +293,13 @@ async function loadState(): Promise<LocalState> {
     const raw = await readFile(dataPath, "utf8");
     const parsed = reviveDates(JSON.parse(raw)) as
       | LocalState
+      | LegacyLocalStateV4
       | LegacyLocalStateV3
       | LegacyLocalStateV2
       | LegacyLocalStateV1;
     const state = migrateState(parsed);
     const recovered = interruptOrphanedGenerationJobs(state);
-    if (parsed.version !== 4 || recovered) await persist(state);
+    if (parsed.version !== 5 || recovered) await persist(state);
     return state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -728,6 +777,15 @@ export async function importProject(plan: ProjectImportPlan, userId: number) {
           ...revision,
         });
       }
+      for (const scene of story.scenes) {
+        state.storyScenes.push({
+          id: state.nextIds.storyScenes++,
+          storyId: record.id,
+          projectId,
+          userId,
+          ...scene,
+        });
+      }
     }
 
     return {
@@ -898,6 +956,194 @@ export async function updateStory(
     );
     if (!story) return false;
     Object.assign(story, data, { updatedAt: new Date() });
+    return true;
+  });
+}
+
+export async function updateStoryOrganization(
+  id: number,
+  userId: number,
+  data: Required<Pick<InsertStory, "tags" | "isFavorite">>
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry => entry.id === id && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story) return false;
+    const now = new Date();
+    story.tags = data.tags ?? null;
+    story.isFavorite = data.isFavorite ?? 0;
+    story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === story.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function getStoryScenes(storyId: number, userId: number) {
+  const state = await readState();
+  const story = state.stories.find(
+    entry => entry.id === storyId && entry.userId === userId && !entry.deletedAt
+  );
+  if (!story) return null;
+  return state.storyScenes
+    .filter(scene => scene.storyId === storyId && scene.userId === userId)
+    .sort((left, right) => left.position - right.position)
+    .map(clone);
+}
+
+export async function getStoryScenesByProject(
+  projectId: number,
+  userId: number
+) {
+  const state = await readState();
+  const project = state.projects.find(
+    entry => entry.id === projectId && entry.userId === userId
+  );
+  if (!project) return null;
+  return state.storyScenes
+    .filter(scene => scene.projectId === projectId && scene.userId === userId)
+    .sort(
+      (left, right) =>
+        left.storyId - right.storyId || left.position - right.position
+    )
+    .map(clone);
+}
+
+export async function createStoryScene(input: {
+  storyId: number;
+  projectId: number;
+  userId: number;
+  title: string;
+  summary: string;
+  pov: string | null;
+  location: string | null;
+}) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry =>
+        entry.id === input.storyId &&
+        entry.projectId === input.projectId &&
+        entry.userId === input.userId &&
+        !entry.deletedAt
+    );
+    if (!story) return null;
+    const scenes = state.storyScenes.filter(
+      scene => scene.storyId === input.storyId && scene.userId === input.userId
+    );
+    if (scenes.length >= 100) return null;
+    const now = new Date();
+    const record: StoryScene = {
+      id: state.nextIds.storyScenes++,
+      ...input,
+      position: scenes.length + 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.storyScenes.push(record);
+    story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === input.projectId && entry.userId === input.userId
+    );
+    if (project) project.updatedAt = now;
+    return clone(record);
+  });
+}
+
+export async function updateStoryScene(
+  id: number,
+  storyId: number,
+  userId: number,
+  data: Pick<InsertStoryScene, "title" | "summary" | "pov" | "location">
+) {
+  return mutate(state => {
+    const scene = state.storyScenes.find(
+      entry =>
+        entry.id === id && entry.storyId === storyId && entry.userId === userId
+    );
+    if (!scene) return false;
+    const now = new Date();
+    Object.assign(scene, data, { updatedAt: now });
+    const story = state.stories.find(
+      entry => entry.id === storyId && entry.userId === userId
+    );
+    if (story) story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === scene.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function deleteStoryScene(
+  id: number,
+  storyId: number,
+  userId: number
+) {
+  return mutate(state => {
+    const index = state.storyScenes.findIndex(
+      entry =>
+        entry.id === id && entry.storyId === storyId && entry.userId === userId
+    );
+    if (index < 0) return false;
+    const [removed] = state.storyScenes.splice(index, 1);
+    const now = new Date();
+    state.storyScenes
+      .filter(scene => scene.storyId === storyId && scene.userId === userId)
+      .sort((left, right) => left.position - right.position)
+      .forEach((scene, sceneIndex) => {
+        scene.position = sceneIndex + 1;
+        scene.updatedAt = now;
+      });
+    const story = state.stories.find(
+      entry => entry.id === storyId && entry.userId === userId
+    );
+    if (story) story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === removed.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function reorderStoryScenes(
+  storyId: number,
+  userId: number,
+  orderedSceneIds: number[]
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry =>
+        entry.id === storyId && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story) return false;
+    const scenes = state.storyScenes.filter(
+      scene => scene.storyId === storyId && scene.userId === userId
+    );
+    const byId = new Map(scenes.map(scene => [scene.id, scene]));
+    if (
+      scenes.length !== orderedSceneIds.length ||
+      new Set(orderedSceneIds).size !== orderedSceneIds.length ||
+      orderedSceneIds.some(id => !byId.has(id))
+    ) {
+      return false;
+    }
+    const now = new Date();
+    for (const [index, id] of orderedSceneIds.entries()) {
+      const scene = byId.get(id);
+      if (!scene) return false;
+      scene.position = index + 1;
+      scene.updatedAt = now;
+    }
+    story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === story.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
     return true;
   });
 }

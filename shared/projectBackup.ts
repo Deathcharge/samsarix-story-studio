@@ -49,6 +49,19 @@ const revisionSchema = z.object({
   createdAt: dateSchema,
 });
 
+const sceneSchema = z.object({
+  id: z.number().int().positive(),
+  storyId: z.number().int().positive(),
+  projectId: z.number().int().positive(),
+  title: nonBlankString(255),
+  summary: nonBlankString(4_000),
+  position: z.number().int().min(1).max(100),
+  pov: z.string().max(255).nullable(),
+  location: z.string().max(255).nullable(),
+  createdAt: dateSchema,
+  updatedAt: dateSchema,
+});
+
 const storySchema = z.object({
   id: z.number().int().positive(),
   projectId: z.number().int().positive(),
@@ -77,6 +90,7 @@ const storySchema = z.object({
   isFavorite: z.union([z.literal(0), z.literal(1)]).optional(),
   deletedAt: nullableDateSchema.optional(),
   revisions: z.array(revisionSchema).max(50),
+  scenes: z.array(sceneSchema).max(100).default([]),
 });
 
 export const projectBackupSchema = z
@@ -114,6 +128,29 @@ export const projectBackupSchema = z
             message: "A revision must reference its containing story.",
           });
         }
+      }
+      const sceneIds = new Set<number>();
+      const positions = new Set<number>();
+      for (const [sceneIndex, scene] of story.scenes.entries()) {
+        if (
+          scene.storyId !== story.id ||
+          scene.projectId !== backup.project.id
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["stories", index, "scenes", sceneIndex],
+            message: "A scene must reference its containing story and project.",
+          });
+        }
+        if (sceneIds.has(scene.id) || positions.has(scene.position)) {
+          context.addIssue({
+            code: "custom",
+            path: ["stories", index, "scenes", sceneIndex],
+            message: "Scene IDs and positions must be unique within a chapter.",
+          });
+        }
+        sceneIds.add(scene.id);
+        positions.add(scene.position);
       }
     }
 

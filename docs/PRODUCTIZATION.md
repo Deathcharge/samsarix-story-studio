@@ -54,7 +54,7 @@ Primary release journey:
 
 The narrow product wedge is control, recoverability, and inspectable context—not feature parity with mature writing suites. Scrivener validates the need to organize and export long manuscripts; Sudowrite’s Story Bible treats project facts as both writer reference and AI context; NovelAI exposes lore activation and context budgets; and Novelcrafter combines a project Codex with bring-your-own-provider choices and revision history. These workflows support the 1.1 decision to build projects, canon, explicit selection reasons, revisions, and portable export before adding more generation modes.
 
-The 2026 Sudowrite workflow describes scenes as the building blocks that turn a chapter outline into prose. That supports scene cards as a valuable future planning layer, but it also exposed a prerequisite in Samsarix: generation must complete the selected blank chapter rather than append a duplicate. Release 1.5 establishes that stable chapter lifecycle before adding subordinate scene records.
+The 2026 Sudowrite workflow describes scenes as the building blocks that turn a chapter outline into prose. That supported scene cards as a valuable planning layer, but it also exposed a prerequisite in Samsarix: generation must complete the selected blank chapter rather than append a duplicate. Release 1.5 established that stable chapter lifecycle; 1.6 adds subordinate, ordered scene records without generating placeholder prose.
 
 Provider identifiers must remain configuration rather than permanent code assumptions: current OpenAI, Anthropic, Google, xAI, and Perplexity documentation all expose active model lists or explicit deprecation lifecycles. The repository’s original Anthropic and Gemini defaults were already retired by July 2026.
 
@@ -124,11 +124,11 @@ The duplicate resolver processes started by those four independent baseline comm
 - [x] Draft editing with capped, recoverable version history.
 - [x] Project import/restore with validation and conflict-safe identity remapping.
 - [x] Chapter planning and explicit, continuity-safe chapter ordering.
-- Scene-level cards within chapters.
+- [x] Scene-level cards within chapters.
 - [x] Durable generation jobs, live server-authored stage progress, reconnect, restart recovery, and user cancellation.
-- Tags, collections, and favorites after their incomplete backend is designed; basic archive search is included now.
+- [x] Bounded story tags and favorites with archive search/filtering. Collections remain a separate future design.
 - Local-model adapters such as Ollama or an OpenAI-compatible base URL.
-- Accessibility testing with assistive technology and cross-browser visual QA.
+- [x] Keyboard/semantic accessibility review and Chromium/Firefox visual QA; formal screen-reader testing remains an external release gate.
 
 ## Implementation checklist
 
@@ -179,37 +179,41 @@ The duplicate resolver processes started by those four independent baseline comm
 - Added the 1.3 manuscript board: genuinely blank chapter plans, status and synopsis editing, drag and accessible move controls, atomic chapter/continuity ordering, first-draft status advancement, archive discovery, Markdown planning context, backward-compatible project backups, a version-3 local migration, and generated MySQL DDL.
 - Added the 1.4 generation lifecycle: content-free durable job metadata, live server-sent stages with polling fallback, reconnectable active work, overlap and ownership controls, SDK-level abort propagation, cancellation without partial story persistence, restart interruption recovery, bounded history, a version-4 local migration, and generated MySQL DDL.
 - Added the 1.5 planned-chapter drafting path: a blank plan is completed in place with stable identity and continuity, synopsis/prior-ending prompt preparation, ownership and overwrite checks, cancellation safety, imported-plan compatibility, and direct project/detail actions.
+- Added the 1.6 organization and scene-planning slice: bounded tags/favorites, ordered scene cards, scene-aware planned prompts, backup round trips, local archive version 5, and MySQL migration `0009_flashy_black_widow.sql`.
+- Removed synthetic UCF/review/token/log claims from the active API and interface. Storage fields remain only for compatibility; an advisory result is shown only when its configured provider-backed reviewer actually ran.
+- Added reproducible source packaging, an independent writer-pilot protocol, external provider/MySQL runbooks, and a counsel-ready legal review packet.
 
 ## Final verification
 
-Environment: Windows, Node.js `v24.12.0`, pnpm `11.9.0`. CI uses the documented Node.js 22 release line.
+Environment: Windows, Node.js `v24.12.0`, pnpm `11.16.0`. CI uses the documented Node.js 22 release line.
 
-| Command                          | Final result                                                                                                                                                                                                                                                                                                                                           |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                                                                                                                                                                                                                                                                          |
-| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                                                                                                                                                                                                                                                               |
-| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                                                                                                                                                                           |
-| `pnpm test`                      | Passed; 5 files and 24 behavioral tests, including in-place planned-chapter completion, duplicate and overwrite prevention, target cancellation safety, durable job success, overlap prevention, ownership, restart interruption, backup round trips, projects/canon/revisions, continuation, and local archive migration.                             |
-| `pnpm build`                     | Passed; 1,844 client modules and the bundled server production artifact were emitted.                                                                                                                                                                                                                                                                  |
-| `pnpm audit`                     | Passed; no known vulnerabilities in production or development dependencies.                                                                                                                                                                                                                                                                            |
-| `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                                                                                                                                                                     |
-| Drizzle schema check             | Passed; generated migrations and snapshots match the nine-table schema with no ungenerated changes.                                                                                                                                                                                                                                                    |
-| browser QA                       | Passed on `127.0.0.1`: created a project and blank plan, opened the targeted studio from **Draft this plan**, verified its derived prompt and locked project, generated into the existing card, confirmed the original title and exactly one 643-word chapter, verified a 390px no-overflow layout, and finished with zero console errors or warnings. |
+| Command                          | Final result                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                                                                                                                                                                                                                      |
+| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                                                                                                                                                                                                           |
+| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                                                                                                                       |
+| `pnpm test`                      | Passed; 5 files and 27 behavioral tests, including atomic scene CRUD/order and prompt inclusion, tags/favorites, backup validation and round trips, in-place planned drafting, cancellation, ownership, revisions, continuation, and local archive migrations.                                     |
+| `pnpm build`                     | Passed; 1,845 client modules and the bundled server production artifact were emitted.                                                                                                                                                                                                              |
+| `pnpm audit`                     | Passed; no known vulnerabilities in production or development dependencies.                                                                                                                                                                                                                        |
+| `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                                                                                                                 |
+| Drizzle schema check             | Passed; migration `0009_flashy_black_widow.sql` and snapshots match the ten-table schema. Live migration execution remains externally gated.                                                                                                                                                       |
+| browser QA                       | Passed in Chromium and Firefox on `127.0.0.1`: created a project/chapter/scene, verified semantic labels and ordered-list structure, tagged and favorited the chapter, found both in the archive, measured 390 px content against a 390 px viewport, and recorded zero browser warnings or errors. |
+| source package                   | Passed; two consecutive `git archive` packages from the same clean commit produced an identical SHA-256 digest and contained the expected version-prefixed source tree.                                                                                                                            |
 
-No external provider call, live MySQL operation, deployment, package publication, account creation, or paid operation was performed. MySQL DDL and snapshots `0007_woozy_quasimodo` and `0008_acoustic_emma_frost` were generated for the 1.4 generation lifecycle, terminal stages, and lifecycle lookup index, but executing those migrations and the MySQL write paths remains dependent on an operator-supplied database.
+No external provider call, live MySQL operation, deployment, package publication, account creation, or paid operation was performed. MySQL DDL and snapshots through `0009_flashy_black_widow.sql` were generated, but executing migrations and MySQL write paths remains dependent on an operator-supplied disposable database.
 
 The Codex Security workbench could not initialize its local helper and returned no scan ID or artifacts. No formal scanner result is claimed. Manual release-diff review instead covered project/story ownership, import schema and reference integrity, replacement of exported identity/ownership fields, payload bounds, context and editor input bounds, export scope, continuation data exposure, local atomic writes and migration behavior, MySQL transaction/retention behavior, and client response size; locally actionable findings were fixed before the final gate.
 
 ## Deferred work and rationale
 
 - Backup import deliberately creates a separate project. In-place merge or replacement remains deferred because it needs field-level conflict presentation and rollback semantics.
-- Ordered scene cards within a chapter remain deferred until the chapter-level planning board has user-pilot evidence.
+- Scene cards are implemented; usability conclusions remain deferred until the independent writer pilot has evidence against one exact artifact digest.
 - Multi-user hosted collaboration, billing, and subscriptions would expand operational and privacy scope without evidence.
 - PDF export adds layout and dependency work; Markdown is sufficient for the first release.
 
 ## Owner-, credential-, legal-, or production-blocked tasks
 
-- Obtain qualified legal review of the BSL parameters, older automated/bot-authored contributions, contributor terms, and any commercial agreement before relying on exclusivity.
+- Obtain qualified legal review using `docs/LEGAL_REVIEW.md` before relying on exclusivity; the packet covers BSL parameters, older automated/bot-authored contributions, contributor terms, trademarks, and commercial agreements.
 - Complete trademark clearance and decide whether Samsarix or Samsarix Story Studio should be federally registered.
 - Supply provider credentials for live-provider verification; no credentials will be fabricated or logged.
 - Design and approve a real authentication, tenancy, CSRF, rate-limit, and deployment model before any multi-user or non-loopback service is attempted; the current server intentionally rejects that mode.

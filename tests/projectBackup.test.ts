@@ -3,6 +3,7 @@ import {
   projectBackupSchema,
   summarizeProjectBackup,
 } from "../shared/projectBackup";
+import { prepareProjectImport } from "../server/projectImport";
 
 function backupFixture() {
   const now = new Date().toISOString();
@@ -47,6 +48,20 @@ function backupFixture() {
         isFavorite: 0,
         deletedAt: null,
         revisions: [],
+        scenes: [
+          {
+            id: 1,
+            storyId: 11,
+            projectId: 7,
+            title: "Opening signal",
+            summary: "The receiver wakes before the storm.",
+            position: 1,
+            pov: null,
+            location: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
       },
     ],
   };
@@ -94,5 +109,47 @@ describe("project backup validation", () => {
     expect(result.error.issues.map(issue => issue.message)).toContain(
       "Previous-chapter links cannot form a cycle."
     );
+  });
+
+  it("rejects duplicate scene positions and cross-story scene references", () => {
+    const duplicateFixture = backupFixture();
+    duplicateFixture.stories[0].scenes.push({
+      ...duplicateFixture.stories[0].scenes[0],
+      id: 2,
+    });
+    const duplicateResult = projectBackupSchema.safeParse(duplicateFixture);
+    expect(duplicateResult.success).toBe(false);
+    if (!duplicateResult.success) {
+      expect(
+        duplicateResult.error.issues.map(issue => issue.message)
+      ).toContain("Scene IDs and positions must be unique within a chapter.");
+    }
+
+    const crossStoryFixture = backupFixture();
+    crossStoryFixture.stories[0].scenes[0].storyId = 99;
+    const crossStoryResult = projectBackupSchema.safeParse(crossStoryFixture);
+    expect(crossStoryResult.success).toBe(false);
+    if (!crossStoryResult.success) {
+      expect(
+        crossStoryResult.error.issues.map(issue => issue.message)
+      ).toContain("A scene must reference its containing story and project.");
+    }
+  });
+
+  it("normalizes imported scene positions after preserving their order", () => {
+    const fixture = backupFixture();
+    fixture.stories[0].scenes[0].position = 9;
+    fixture.stories[0].scenes.push({
+      ...fixture.stories[0].scenes[0],
+      id: 2,
+      title: "Earlier signal",
+      position: 5,
+    });
+    const plan = prepareProjectImport(projectBackupSchema.parse(fixture));
+    expect(plan.stories[0].scenes.map(scene => scene.title)).toEqual([
+      "Earlier signal",
+      "Opening signal",
+    ]);
+    expect(plan.stories[0].scenes.map(scene => scene.position)).toEqual([1, 2]);
   });
 });

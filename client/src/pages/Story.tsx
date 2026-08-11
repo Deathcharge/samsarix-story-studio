@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
-  Brain,
   Calendar,
   CircleAlert,
   Download,
@@ -11,12 +10,17 @@ import {
   Pencil,
   RotateCcw,
   Save,
-  ShieldCheck,
   Sparkles,
+  Star,
+  Tag,
   Zap,
 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { CHAPTER_STATUS_LABELS } from "@shared/chapterPlanning";
+import {
+  MAX_STORY_TAG_LENGTH,
+  MAX_STORY_TAGS,
+} from "@shared/storyOrganization";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -54,6 +58,7 @@ export default function Story() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
+  const [tagText, setTagText] = useState("");
   const storyQuery = trpc.stories.getByRitualId.useQuery(
     { ritualId },
     { enabled: Boolean(ritualId), retry: false }
@@ -64,14 +69,6 @@ export default function Story() {
   const revisionsQuery = trpc.stories.revisions.useQuery(
     { storyId: story?.id ?? 0 },
     { enabled: Boolean(story?.id), retry: false }
-  );
-  const trajectoryQuery = trpc.stories.getUcfTrajectory.useQuery(
-    { ritualId },
-    { enabled: Boolean(story?.ritualId) && hasGenerationProcess, retry: false }
-  );
-  const agentLogsQuery = trpc.stories.getAgentLogs.useQuery(
-    { ritualId },
-    { enabled: Boolean(story?.ritualId) && hasGenerationProcess, retry: false }
   );
   const updateMutation = trpc.stories.update.useMutation({
     onSuccess: async () => {
@@ -98,11 +95,20 @@ export default function Story() {
       ]);
     },
   });
+  const organizationMutation = trpc.stories.updateOrganization.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.stories.getByRitualId.invalidate({ ritualId }),
+        utils.stories.list.invalidate(),
+      ]);
+    },
+  });
 
   useEffect(() => {
     if (!story || isEditing) return;
     setEditTitle(story.title);
     setEditContent(story.content);
+    setTagText(story.tags.join(", "));
   }, [isEditing, story]);
 
   if (storyQuery.isLoading) {
@@ -174,6 +180,16 @@ export default function Story() {
       contribution.name === "kavach" && contribution.provider !== "demo"
   );
   const hasManuscript = Boolean(story.content.trim());
+  const saveOrganization = (isFavorite = story.isFavorite) => {
+    organizationMutation.mutate({
+      id: story.id,
+      isFavorite,
+      tags: tagText
+        .split(",")
+        .map(tag => tag.trim())
+        .filter(Boolean),
+    });
+  };
   const handleDownload = () => {
     const blob = new Blob([story.content], {
       type: "text/markdown;charset=utf-8",
@@ -249,6 +265,11 @@ export default function Story() {
               <Badge variant="outline">
                 {CHAPTER_STATUS_LABELS[story.draftStatus]}
               </Badge>
+              {story.isFavorite ? (
+                <Badge variant="outline">
+                  <Star className="mr-1 h-3 w-3 fill-current" /> Favorite
+                </Badge>
+              ) : null}
             </div>
             <h1 className="max-w-4xl text-4xl font-bold tracking-tight md:text-5xl">
               {story.title}
@@ -261,17 +282,17 @@ export default function Story() {
                 <FileText className="mr-1 h-3 w-3" />
                 {story.wordCount} words
               </Badge>
-              {isDemo || hasQualityReview ? (
+              {hasQualityReview && story.review.quality.score !== null ? (
                 <Badge variant="outline">
                   <Sparkles className="mr-1 h-3 w-3" />
-                  {Math.round(story.qualityScore * 100)}%{" "}
-                  {isDemo ? "template score" : "automated quality score"}
+                  {Math.round(story.review.quality.score * 100)}% advisory
+                  quality score
                 </Badge>
               ) : null}
-              {hasSafetyReview && story.ethicalApproval && (
+              {hasSafetyReview && story.review.safety.outcome && (
                 <Badge variant="outline">
-                  <ShieldCheck className="mr-1 h-3 w-3" />
-                  Safety review flag: pass
+                  <CircleAlert className="mr-1 h-3 w-3" />
+                  Advisory content check: {story.review.safety.outcome}
                 </Badge>
               )}
               <Badge variant="outline">
@@ -324,6 +345,54 @@ export default function Story() {
                 {updateMutation.error.message}
               </p>
             )}
+            <div className="grid max-w-2xl gap-3 rounded-lg border border-border/60 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+              <div className="space-y-2">
+                <label htmlFor="story-tags" className="text-sm font-semibold">
+                  <Tag className="mr-1 inline h-4 w-4" /> Tags
+                </label>
+                <Input
+                  id="story-tags"
+                  value={tagText}
+                  maxLength={
+                    MAX_STORY_TAGS * MAX_STORY_TAG_LENGTH +
+                    (MAX_STORY_TAGS - 1) * 2
+                  }
+                  placeholder="mystery, revision, act-one"
+                  onChange={event => setTagText(event.target.value)}
+                  aria-describedby="story-tags-help"
+                />
+                <p
+                  id="story-tags-help"
+                  className="text-xs text-muted-foreground"
+                >
+                  Up to {MAX_STORY_TAGS} comma-separated tags,{" "}
+                  {MAX_STORY_TAG_LENGTH} characters each.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                disabled={organizationMutation.isPending}
+                onClick={() => saveOrganization()}
+              >
+                Save tags
+              </Button>
+              <Button
+                variant={story.isFavorite ? "default" : "outline"}
+                disabled={organizationMutation.isPending}
+                aria-pressed={story.isFavorite}
+                onClick={() => saveOrganization(!story.isFavorite)}
+              >
+                <Star
+                  className={`mr-2 h-4 w-4 ${story.isFavorite ? "fill-current" : ""}`}
+                />
+                {story.isFavorite ? "Favorited" : "Favorite"}
+              </Button>
+            </div>
+            {organizationMutation.error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {organizationMutation.error.message}
+              </p>
+            ) : null}
             {isDemo && (
               <p className="text-sm text-muted-foreground">
                 This sample was assembled locally from a fixed template. It did
@@ -335,15 +404,14 @@ export default function Story() {
           <Tabs defaultValue="story" className="space-y-6">
             <TabsList
               className={`grid w-full ${
-                hasGenerationProcess ? "grid-cols-4" : "grid-cols-2"
+                hasGenerationProcess ? "grid-cols-3" : "grid-cols-2"
               }`}
             >
               <TabsTrigger value="story">Draft</TabsTrigger>
               <TabsTrigger value="history">History</TabsTrigger>
               {hasGenerationProcess ? (
                 <>
-                  <TabsTrigger value="process">Process</TabsTrigger>
-                  <TabsTrigger value="logs">Logs</TabsTrigger>
+                  <TabsTrigger value="process">Workflow</TabsTrigger>
                 </>
               ) : null}
             </TabsList>
@@ -519,39 +587,16 @@ export default function Story() {
 
             {hasGenerationProcess ? (
               <TabsContent value="process">
-                <div className="grid gap-5 md:grid-cols-2">
+                <div className="grid gap-5">
                   <Card className="p-6">
-                    <h2 className="flex items-center gap-2 text-lg font-bold">
-                      <Brain className="h-5 w-5 text-primary" />
-                      Creative signal snapshot
+                    <h2 className="text-lg font-bold">
+                      Recorded workflow participants
                     </h2>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      Legacy heuristic values recorded by the workflow. They are
-                      not scientific measurements.
+                      This records which configured roles participated. It does
+                      not claim token counts, scientific scores, or a complete
+                      reasoning trace.
                     </p>
-                    <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                      {[
-                        ["Harmony", story.ucfHarmony],
-                        ["Energy", story.ucfPrana],
-                        ["Focus", story.ucfDrishti],
-                        ["Friction", story.ucfKlesha],
-                        ["Resilience", story.ucfResilience],
-                        ["Scope", story.ucfZoom],
-                      ].map(([label, value]) => (
-                        <div
-                          key={String(label)}
-                          className="rounded-lg border border-border/50 p-3"
-                        >
-                          <dt className="text-muted-foreground">{label}</dt>
-                          <dd className="mt-1 font-mono">
-                            {Number(value).toFixed(2)}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </Card>
-                  <Card className="p-6">
-                    <h2 className="text-lg font-bold">Agent contributions</h2>
                     <div className="mt-5 space-y-3">
                       {contributions.map(contribution => (
                         <div
@@ -577,52 +622,6 @@ export default function Story() {
                       ))}
                     </div>
                   </Card>
-                  {trajectoryQuery.data && trajectoryQuery.data.length > 0 && (
-                    <Card className="p-6 md:col-span-2">
-                      <h2 className="text-lg font-bold">Recorded trajectory</h2>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {trajectoryQuery.data.length} workflow snapshots are
-                        available from the legacy engine.
-                      </p>
-                    </Card>
-                  )}
-                </div>
-              </TabsContent>
-            ) : null}
-
-            {hasGenerationProcess ? (
-              <TabsContent value="logs">
-                <div className="space-y-4">
-                  {agentLogsQuery.isLoading ? (
-                    <Card className="p-8 text-center text-muted-foreground">
-                      Loading logs…
-                    </Card>
-                  ) : agentLogsQuery.data && agentLogsQuery.data.length > 0 ? (
-                    agentLogsQuery.data.map(log => (
-                      <Card key={log.id} className="p-6">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl" aria-hidden="true">
-                            {log.agentSymbol}
-                          </span>
-                          <div>
-                            <h2 className="font-bold">{log.agentName}</h2>
-                            <p className="text-sm text-muted-foreground">
-                              {log.role}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="mt-4 whitespace-pre-wrap border-t border-border/50 pt-4 text-sm leading-6">
-                          {log.content}
-                        </p>
-                      </Card>
-                    ))
-                  ) : (
-                    <Card className="p-10 text-center">
-                      <p className="text-muted-foreground">
-                        No detailed agent logs were stored for this draft.
-                      </p>
-                    </Card>
-                  )}
                 </div>
               </TabsContent>
             ) : null}

@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { ScenePlan, type SceneCardData } from "@/components/ScenePlan";
 
 type Chapter = {
   id: number;
@@ -34,6 +35,7 @@ type Chapter = {
   draftStatus: ChapterStatus;
   synopsis: string | null;
   canDraftWithStudio: boolean;
+  scenes: SceneCardData[];
 };
 
 function PlanningEditor({
@@ -303,9 +305,6 @@ export function ChapterBoard({
           {orderedStories.map((story, index) => (
             <Card
               key={story.id}
-              draggable={!reorder.isPending}
-              onDragStart={() => setDraggedId(story.id)}
-              onDragEnd={() => setDraggedId(null)}
               onDragOver={event => event.preventDefault()}
               onDrop={() => dropChapter(story.id)}
               className={`story-card p-5 ${
@@ -313,10 +312,15 @@ export function ChapterBoard({
               }`}
             >
               <div className="flex items-start gap-3">
-                <GripVertical
-                  className="mt-1 hidden h-5 w-5 shrink-0 cursor-grab text-muted-foreground sm:block"
-                  aria-hidden="true"
-                />
+                <span
+                  draggable={!reorder.isPending}
+                  onDragStart={() => setDraggedId(story.id)}
+                  onDragEnd={() => setDraggedId(null)}
+                  title={`Drag ${story.title} to reorder`}
+                  className="mt-1 hidden shrink-0 cursor-grab text-muted-foreground sm:block"
+                >
+                  <GripVertical className="h-5 w-5" aria-hidden="true" />
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.15em] text-primary">
@@ -362,6 +366,11 @@ export function ChapterBoard({
                         synopsis,
                       })
                     }
+                  />
+                  <ScenePlan
+                    projectId={projectId}
+                    storyId={story.id}
+                    scenes={story.scenes}
                   />
                 </div>
                 <div className="flex shrink-0 flex-col gap-1">
