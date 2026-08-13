@@ -17,7 +17,7 @@ export interface LLMMessage {
 export interface LLMOptions {
   temperature?: number;
   maxTokens?: number;
-  stream?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface LLMResponse {
@@ -90,33 +90,12 @@ function requireApiKey(provider: LLMProvider) {
   return key;
 }
 
-async function withTimeout<T>(promise: Promise<T>, provider: LLMProvider) {
-  const timeoutMs = getTimeoutMs();
-  let timeout: NodeJS.Timeout | undefined;
-  const guard = new Promise<never>((_, reject) => {
-    timeout = setTimeout(
-      () =>
-        reject(new Error(`${provider} request timed out after ${timeoutMs}ms`)),
-      timeoutMs
-    );
-  });
-
-  try {
-    return await Promise.race([promise, guard]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
 export async function callLLM(
   provider: LLMProvider,
   messages: LLMMessage[],
   options: LLMOptions = {}
 ): Promise<LLMResponse> {
-  if (options.stream) {
-    throw new Error("Streaming is not supported by this release");
-  }
-
+  options.signal?.throwIfAborted();
   const temperature = Math.min(Math.max(options.temperature ?? 0.7, 0), 1);
   const maxTokens = Math.min(Math.max(options.maxTokens ?? 2_000, 1), 4_000);
   if (!getApiKey(provider)) {
@@ -128,17 +107,46 @@ export async function callLLM(
   try {
     switch (provider) {
       case "openai":
-        return await callOpenAI(provider, messages, temperature, maxTokens);
+        return await callOpenAI(
+          provider,
+          messages,
+          temperature,
+          maxTokens,
+          options.signal
+        );
       case "anthropic":
-        return await callAnthropic(messages, temperature, maxTokens);
+        return await callAnthropic(
+          messages,
+          temperature,
+          maxTokens,
+          options.signal
+        );
       case "xai":
-        return await callOpenAI(provider, messages, temperature, maxTokens);
+        return await callOpenAI(
+          provider,
+          messages,
+          temperature,
+          maxTokens,
+          options.signal
+        );
       case "google":
-        return await callGemini(messages, temperature, maxTokens);
+        return await callGemini(
+          messages,
+          temperature,
+          maxTokens,
+          options.signal
+        );
       case "perplexity":
-        return await callOpenAI(provider, messages, temperature, maxTokens);
+        return await callOpenAI(
+          provider,
+          messages,
+          temperature,
+          maxTokens,
+          options.signal
+        );
     }
   } catch (error) {
+    if (options.signal?.aborted) throw error;
     const status =
       typeof error === "object" &&
       error !== null &&
@@ -159,8 +167,12 @@ export async function callLLM(
         `${provider} rate limit or quota was reached. Try again later.`
       );
     }
-    if (error instanceof Error && error.message.includes("timed out after")) {
-      throw new Error(error.message);
+    if (
+      error instanceof Error &&
+      (error.name.includes("Timeout") ||
+        /\b(?:timed out|timeout)\b/i.test(error.message))
+    ) {
+      throw new Error(`${provider} request timed out. Try again.`);
     }
     throw new Error(
       `${provider} request failed. Check provider status, connectivity, and model configuration.`
@@ -172,7 +184,8 @@ async function callOpenAI(
   provider: "openai" | "xai" | "perplexity",
   messages: LLMMessage[],
   temperature: number,
-  maxTokens: number
+  maxTokens: number,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const baseURL =
     provider === "xai"
@@ -187,12 +200,15 @@ async function callOpenAI(
     timeout: getTimeoutMs(),
   });
   const model = getModelForProvider(provider);
-  const response = await client.chat.completions.create({
-    model,
-    messages,
-    temperature,
-    max_tokens: maxTokens,
-  });
+  const response = await client.chat.completions.create(
+    {
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    },
+    { signal }
+  );
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("Provider returned no text content");
 
@@ -211,7 +227,8 @@ async function callOpenAI(
 async function callAnthropic(
   messages: LLMMessage[],
   temperature: number,
-  maxTokens: number
+  maxTokens: number,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const client = new Anthropic({
     apiKey: requireApiKey("anthropic"),
@@ -229,13 +246,16 @@ async function callAnthropic(
       content: message.content,
     }));
   const model = getModelForProvider("anthropic");
-  const response = await client.messages.create({
-    model,
-    system,
-    messages: conversation,
-    temperature,
-    max_tokens: maxTokens,
-  });
+  const response = await client.messages.create(
+    {
+      model,
+      system,
+      messages: conversation,
+      temperature,
+      max_tokens: maxTokens,
+    },
+    { signal }
+  );
   const content = response.content.find(part => part.type === "text");
   if (!content || content.type !== "text") {
     throw new Error("Provider returned no text content");
@@ -256,7 +276,8 @@ async function callAnthropic(
 async function callGemini(
   messages: LLMMessage[],
   temperature: number,
-  maxTokens: number
+  maxTokens: number,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const client = new GoogleGenerativeAI(requireApiKey("google"));
   const modelName = getModelForProvider("google");
@@ -277,10 +298,10 @@ async function callGemini(
   });
   const lastMessage = conversation.at(-1);
   if (!lastMessage) throw new Error("A user message is required");
-  const result = await withTimeout(
-    chat.sendMessage(lastMessage.content),
-    "google"
-  );
+  const result = await chat.sendMessage(lastMessage.content, {
+    timeout: getTimeoutMs(),
+    signal,
+  });
   const response = result.response;
 
   return {

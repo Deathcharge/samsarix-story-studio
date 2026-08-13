@@ -1,6 +1,6 @@
 # Samsarix Story Studio productization record
 
-Last updated: 2026-07-28
+Last updated: 2026-08-01
 
 ## Current repository assessment
 
@@ -18,7 +18,7 @@ The worktree was clean before implementation (`git status --short --branch` retu
 
 ## Chosen product
 
-**Samsarix Story Studio** is a local-first, bring-your-own-provider fiction workshop from Samsarix LLC. A writer enters a story premise, chooses a bounded orchestration preset, generates a complete draft, reviews transparent agent/quality metadata, saves it to a local archive, continues a chapter, and exports Markdown.
+**Samsarix Story Studio** is a local-first, bring-your-own-provider manuscript workspace from Samsarix LLC. A writer creates a project, plans and reorders empty chapters, maintains explicit story canon, previews the bounded context selected for a chapter, generates or writes a draft, edits it with recoverable revisions, continues the manuscript, and exports Markdown or a versioned JSON backup.
 
 The default no-credential mode is an explicitly labeled deterministic demo. It exists so a new user can evaluate the complete workflow without an account, cloud database, private legacy service, or API spend. Supplying one supported provider key enables the real orchestration path; unavailable preferred providers fall back to the configured provider instead of requiring five accounts.
 
@@ -33,10 +33,11 @@ Primary release journey:
 1. install dependencies and start the local server;
 2. open the studio without external authentication;
 3. enter or choose a prompt;
-4. generate a demo or provider-backed draft with bounded cost;
-5. view the persisted story and its clearly labeled metadata;
-6. find it again in the archive;
-7. download Markdown or continue into the next chapter.
+4. plan, status, and reorder empty chapters without requiring AI generation;
+5. generate a demo or provider-backed draft with bounded cost, completing a selected blank chapter plan in place when applicable;
+6. edit the persisted story while retaining the previous manuscript as a recoverable revision;
+7. restore a revision, continue the manuscript, or find any plan or draft in the archive;
+8. download a combined Markdown manuscript or full project JSON backup.
 
 ## Product and architecture decisions
 
@@ -46,19 +47,26 @@ Primary release journey:
 - Instantiate external provider clients lazily, validate configuration before calls, bound retries/timeouts, and cap orchestration size.
 - Remove private Manus services and unused legacy adapters from the product and dependency graph.
 - Remove fabricated metrics, dead controls, placeholder analytics, and external font dependencies from the user-facing core.
-- Prefer a single complete story workflow over editing, collaboration, billing, or broad content-management features.
+- Prefer a focused project/canon/manuscript workflow over collaboration, billing, or broad content-management features.
 - Do not deploy, publish, spend money, create accounts, or modify `helix-unified`.
 
 ## Current ecosystem evidence
 
-The narrow product wedge is control and inspectability, not feature parity with mature writing suites. Sudowrite’s current Story Bible is a project source of truth for both organization and AI context, while Novelcrafter advertises provider choice and local-model connectivity. Those products validate future context-management work but also make a full novel-management suite an unrealistic first-release target.
+The narrow product wedge is control, recoverability, and inspectable context—not feature parity with mature writing suites. Scrivener validates the need to organize and export long manuscripts; Sudowrite’s Story Bible treats project facts as both writer reference and AI context; NovelAI exposes lore activation and context budgets; and Novelcrafter combines a project Codex with bring-your-own-provider choices and revision history. These workflows support the 1.1 decision to build projects, canon, explicit selection reasons, revisions, and portable export before adding more generation modes.
+
+The 2026 Sudowrite workflow describes scenes as the building blocks that turn a chapter outline into prose. That supported scene cards as a valuable planning layer, but it also exposed a prerequisite in Samsarix: generation must complete the selected blank chapter rather than append a duplicate. Release 1.5 established that stable chapter lifecycle; 1.6 adds subordinate, ordered scene records without generating placeholder prose.
 
 Provider identifiers must remain configuration rather than permanent code assumptions: current OpenAI, Anthropic, Google, xAI, and Perplexity documentation all expose active model lists or explicit deprecation lifecycles. The repository’s original Anthropic and Gemini defaults were already retired by July 2026.
 
 Primary references:
 
 - https://docs.sudowrite.com/using-sudowrite/1ow1qkGqof9rtcyGnrWUBS/what-is-story-bible/jmWepHcQdJetNrE991fjJC
+- https://docs.sudowrite.com/using-sudowrite/1ow1qkGqof9rtcyGnrWUBS/scenes--chapter-prose/49p5MTVxTKkVFEC5rVUzpY
+- https://www.literatureandlatte.com/scrivener/overview
+- https://docs.novelai.net/en/text/lorebook/
+- https://docs.novelai.net/en/text/editor/advancedsettings/
 - https://www.novelcrafter.com/
+- https://docs.novelcrafter.com/en/articles/8677729-revision-history/
 - https://platform.openai.com/docs/models
 - https://platform.claude.com/docs/en/about-claude/models/overview
 - https://ai.google.dev/gemini-api/docs/models
@@ -112,12 +120,15 @@ The duplicate resolver processes started by those four independent baseline comm
 
 ### P2 — valuable after the first credible release
 
-- Story bible/codex and scene-level context management.
-- Draft editing and regeneration with version history.
-- Streaming real stage progress and user cancellation.
-- Tags, collections, and favorites after their incomplete backend is designed; basic archive search is included now.
+- [x] Project-level story bible/canon with explicit, bounded context selection.
+- [x] Draft editing with capped, recoverable version history.
+- [x] Project import/restore with validation and conflict-safe identity remapping.
+- [x] Chapter planning and explicit, continuity-safe chapter ordering.
+- [x] Scene-level cards within chapters.
+- [x] Durable generation jobs, live server-authored stage progress, reconnect, restart recovery, and user cancellation.
+- [x] Bounded story tags and favorites with archive search/filtering. Collections remain a separate future design.
 - Local-model adapters such as Ollama or an OpenAI-compatible base URL.
-- Accessibility testing with assistive technology and cross-browser visual QA.
+- [x] Keyboard/semantic accessibility review and Chromium/Firefox visual QA; formal screen-reader testing remains an external release gate.
 
 ## Implementation checklist
 
@@ -157,33 +168,52 @@ The duplicate resolver processes started by those four independent baseline comm
 - Pruned unused packages and private adapters, upgraded vulnerable production dependencies, and added a pinned, least-privilege CI workflow.
 - Replaced assertion-free demo tests with generation, persistence, ownership, validation, and network-boundary coverage.
 - Rebranded the standalone product for Samsarix LLC, preserved legacy data/configuration compatibility, and replaced conflicting legal files with a single canonical BSL 1.1 posture plus copyright, trademark, commercial, support, and security notices.
+- Added the 1.1 Projects & Canon vertical slice: project briefs, typed canon, deterministic context activation and preview, project-aware generation, editable chapters, revision restore, and portable project/manuscript export.
+- Added a versioned local-data migration, transactional MySQL revision writes, generated Drizzle migrations, medium-text manuscript storage, and a 50-revision retention bound.
+- Removed story-derived continuation text from URLs, made continuation preparation read-only, and delayed prior-chapter series updates until a next chapter is successfully persisted.
+- Corrected atomic local persistence so failed disk writes leave the last persisted in-memory state intact.
+- Kept routine project responses bounded to chapter summaries; full manuscript and revision bodies are returned only by story detail or an explicit project export.
+- Performed production-browser QA for project creation, canon creation, context preview, demo generation, chapter editing, revision history, continuation privacy, and 390-pixel responsive layout; QA findings were fixed before release verification.
+- Hardened the complete development dependency graph for 1.1.1, including Vite, Vitest, esbuild, tar, PostCSS, Rollup, Picomatch, and Babel; pnpm 11 workspace overrides now make those resolutions reproducible in clean installs and CI.
+- Added the 1.2 backup recovery path: client and server schema validation, copy-only semantics, atomic local persistence, transactional MySQL persistence, ownership/identity replacement, relationship remapping, route-scoped payload bounds, internal-identifier removal, and exact manuscript whitespace preservation.
+- Added the 1.3 manuscript board: genuinely blank chapter plans, status and synopsis editing, drag and accessible move controls, atomic chapter/continuity ordering, first-draft status advancement, archive discovery, Markdown planning context, backward-compatible project backups, a version-3 local migration, and generated MySQL DDL.
+- Added the 1.4 generation lifecycle: content-free durable job metadata, live server-sent stages with polling fallback, reconnectable active work, overlap and ownership controls, SDK-level abort propagation, cancellation without partial story persistence, restart interruption recovery, bounded history, a version-4 local migration, and generated MySQL DDL.
+- Added the 1.5 planned-chapter drafting path: a blank plan is completed in place with stable identity and continuity, synopsis/prior-ending prompt preparation, ownership and overwrite checks, cancellation safety, imported-plan compatibility, and direct project/detail actions.
+- Added the 1.6 organization and scene-planning slice: bounded tags/favorites, ordered scene cards, scene-aware planned prompts, backup round trips, local archive version 5, and MySQL migration `0009_flashy_black_widow.sql`.
+- Removed synthetic UCF/review/token/log claims from the active API and interface. Storage fields remain only for compatibility; an advisory result is shown only when its configured provider-backed reviewer actually ran.
+- Added reproducible source packaging, an independent writer-pilot protocol, external provider/MySQL runbooks, and a counsel-ready legal review packet.
 
 ## Final verification
 
-Environment: Windows, Node.js `v24.12.0`, pnpm `11.9.0`. CI uses the documented Node.js 22 release line.
+Environment: Windows, Node.js `v24.12.0`, pnpm `11.16.0`. CI uses the documented Node.js 22 release line.
 
-| Command                          | Final result                                                                                                |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                               |
-| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                    |
-| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                |
-| `pnpm test`                      | Passed; 2 files and 7 behavioral tests, including Samsarix/legacy storage-setting compatibility.            |
-| `pnpm build`                     | Passed; client and server production artifacts were emitted.                                                |
-| `pnpm audit --prod`              | Passed; no known production dependency vulnerabilities.                                                     |
-| `pnpm peers check`               | Passed; no peer dependency issues.                                                                          |
-| production smoke                 | Passed on `127.0.0.1`: health, static index, demo status, local storage, and hostile Host/Origin rejection. |
+| Command                          | Final result                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile` | Passed; lockfile was current.                                                                                                                                                                                                                                                                      |
+| `pnpm lint`                      | Passed; all tracked source/config/docs matched Prettier.                                                                                                                                                                                                                                           |
+| `pnpm check`                     | Passed; TypeScript completed with no errors.                                                                                                                                                                                                                                                       |
+| `pnpm test`                      | Passed; 5 files and 27 behavioral tests, including atomic scene CRUD/order and prompt inclusion, tags/favorites, backup validation and round trips, in-place planned drafting, cancellation, ownership, revisions, continuation, and local archive migrations.                                     |
+| `pnpm build`                     | Passed; 1,845 client modules and the bundled server production artifact were emitted.                                                                                                                                                                                                              |
+| `pnpm audit`                     | Passed; no known vulnerabilities in production or development dependencies.                                                                                                                                                                                                                        |
+| `pnpm peers check`               | Passed; no peer dependency issues.                                                                                                                                                                                                                                                                 |
+| Drizzle schema check             | Passed; migration `0009_flashy_black_widow.sql` and snapshots match the ten-table schema. Live migration execution remains externally gated.                                                                                                                                                       |
+| browser QA                       | Passed in Chromium and Firefox on `127.0.0.1`: created a project/chapter/scene, verified semantic labels and ordered-list structure, tagged and favorited the chapter, found both in the archive, measured 390 px content against a 390 px viewport, and recorded zero browser warnings or errors. |
+| source package                   | Passed; two consecutive `git archive` packages from the same clean commit produced an identical SHA-256 digest and contained the expected version-prefixed source tree.                                                                                                                            |
 
-No external provider call, deployment, package publication, account creation, or paid operation was performed.
+No external provider call, live MySQL operation, deployment, package publication, account creation, or paid operation was performed. MySQL DDL and snapshots through `0009_flashy_black_widow.sql` were generated, but executing migrations and MySQL write paths remains dependent on an operator-supplied disposable database.
+
+The Codex Security workbench could not initialize its local helper and returned no scan ID or artifacts. No formal scanner result is claimed. Manual release-diff review instead covered project/story ownership, import schema and reference integrity, replacement of exported identity/ownership fields, payload bounds, context and editor input bounds, export scope, continuation data exposure, local atomic writes and migration behavior, MySQL transaction/retention behavior, and client response size; locally actionable findings were fixed before the final gate.
 
 ## Deferred work and rationale
 
-- A full manuscript editor and story bible are higher-value than the existing speculative QoL schema, but neither is required to validate the release journey.
+- Backup import deliberately creates a separate project. In-place merge or replacement remains deferred because it needs field-level conflict presentation and rollback semantics.
+- Scene cards are implemented; usability conclusions remain deferred until the independent writer pilot has evidence against one exact artifact digest.
 - Multi-user hosted collaboration, billing, and subscriptions would expand operational and privacy scope without evidence.
 - PDF export adds layout and dependency work; Markdown is sufficient for the first release.
 
 ## Owner-, credential-, legal-, or production-blocked tasks
 
-- Obtain qualified legal review of the BSL parameters, older automated/bot-authored contributions, contributor terms, and any commercial agreement before relying on exclusivity.
+- Obtain qualified legal review using `docs/LEGAL_REVIEW.md` before relying on exclusivity; the packet covers BSL parameters, older automated/bot-authored contributions, contributor terms, trademarks, and commercial agreements.
 - Complete trademark clearance and decide whether Samsarix or Samsarix Story Studio should be federally registered.
 - Supply provider credentials for live-provider verification; no credentials will be fabricated or logged.
 - Design and approve a real authentication, tenancy, CSRF, rate-limit, and deployment model before any multi-user or non-loopback service is attempted; the current server intentionally rejects that mode.

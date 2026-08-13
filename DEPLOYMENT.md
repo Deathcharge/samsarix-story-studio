@@ -57,6 +57,16 @@ pnpm start
 
 Database TLS, credentials, least-privilege grants, backup/restore drills, and schema rollback are operator responsibilities. The local file and MySQL adapters should not point at the same logical archive and do not synchronize.
 
+Release 1.1 adds migrations `0004_projects_canon_workspace.sql` and `0005_manuscript_mediumtext.sql`. Apply both before starting 1.1 against an existing MySQL database.
+
+Release 1.2 adds project-backup import without a schema migration. Import requests remain loopback-only; only the exact import procedure receives an 8 MB JSON body ceiling, while other API procedures retain 1 MB. The UI accepts at most 7 MB backup files before client and server validation. Local imports use one atomic archive write; MySQL imports use one transaction. A failed import should not create a partial project.
+
+Release 1.3 adds migration `0006_cynical_squirrel_girl.sql` for chapter synopsis and draft-status fields. Apply it before starting 1.3 against an existing MySQL database. The default local-file adapter upgrades version-1 or version-2 archives to version 3 on first load. Back up either storage profile before upgrading when rollback matters.
+
+Release 1.4 adds migrations `0007_woozy_quasimodo.sql` and `0008_acoustic_emma_frost.sql` for content-free generation-job metadata, explicit terminal stages, and lifecycle lookup indexing. Apply them before starting 1.4 or later against an existing MySQL database. The default local-file adapter upgrades archives to version 4 on first load. Jobs left queued, running, or cancelling by a previous process are marked interrupted at startup; prompt and manuscript text are not stored in job records. Release 1.5 changes planned-chapter behavior without adding a storage migration.
+
+Release 1.6 adds migration `0009_flashy_black_widow.sql` for ordered story scenes. Apply it before starting 1.6 or later against MySQL. The default local-file adapter upgrades archives to version 5 on first load. Tags and favorites reuse existing story columns; scene cards are included in project backups and restored with remapped ownership and story identifiers.
+
 ## Health and shutdown
 
 - `GET /healthz` returns process health and auth mode.
