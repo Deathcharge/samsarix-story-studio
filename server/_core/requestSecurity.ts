@@ -22,6 +22,10 @@ export function isTrustedRequestMetadata(hostname: string, origin?: string) {
   }
 }
 
+export function isBackupImportRequestPath(requestPath: string) {
+  return requestPath.split(",").includes("/projects.importBackup");
+}
+
 export function enforceRequestBoundary(
   req: Request,
   res: Response,

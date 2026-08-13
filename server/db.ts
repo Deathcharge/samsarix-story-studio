@@ -1,18 +1,59 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   agentLogs,
+  canonEntries,
+  generationJobs,
   type InsertAgentLog,
+  type InsertCanonEntry,
+  type InsertGenerationJob,
+  type InsertProject,
   type InsertStory,
+  type InsertStoryScene,
+  type InsertStoryRevision,
   type InsertUcfState,
   type InsertUser,
+  projects,
   stories,
+  storyScenes,
+  storyRevisions,
   ucfStates,
   users,
 } from "../drizzle/schema";
+import type { ProjectBackup } from "../shared/projectBackup";
+import type { ChapterStatus } from "../shared/chapterPlanning";
+import { isTerminalGenerationStatus } from "../shared/generationLifecycle";
 import * as localStore from "./localStore";
+import {
+  isDraftablePlannedChapter,
+  type PlannedChapterCompletion,
+} from "./plannedChapter";
+import { prepareProjectImport } from "./projectImport";
 
 let database: ReturnType<typeof drizzle> | null = null;
+
+function chapterNumberOrderCase(orderedStoryIds: number[]) {
+  const cases = orderedStoryIds.map(
+    (id, index) => sql`WHEN ${stories.id} = ${id} THEN ${index + 1}`
+  );
+  return sql`CASE ${sql.join(cases, sql.raw(" "))} ELSE ${stories.chapterNumber} END`;
+}
+
+function previousChapterOrderCase(orderedStoryIds: number[]) {
+  const cases = orderedStoryIds.map(
+    (id, index) =>
+      sql`WHEN ${stories.id} = ${id} THEN ${index === 0 ? null : orderedStoryIds[index - 1]}`
+  );
+  return sql`CASE ${sql.join(cases, sql.raw(" "))} ELSE ${stories.previousChapterId} END`;
+}
+
+function scenePositionOrderCase(orderedSceneIds: number[]) {
+  const cases = orderedSceneIds.map(
+    (id, index) => sql`WHEN ${storyScenes.id} = ${id} THEN ${index + 1}`
+  );
+  return sql`CASE ${sql.join(cases, sql.raw(" "))} ELSE ${storyScenes.position} END`;
+}
 
 export function getStorageMode() {
   return process.env.DATABASE_URL ? "mysql" : "local-file";
@@ -53,6 +94,122 @@ export async function getLocalUser() {
   const user = await getUserByOpenId(openId);
   if (!user) throw new Error("Could not initialize the local MySQL user");
   return user;
+}
+
+export async function recoverInterruptedGenerationJobs() {
+  if (getStorageMode() === "local-file") {
+    // Loading the local store performs the recovery atomically.
+    await localStore.getLocalUser();
+    return;
+  }
+  const now = new Date();
+  await (
+    await requireDb()
+  )
+    .update(generationJobs)
+    .set({
+      status: "interrupted",
+      stage: "interrupted",
+      stageLabel: "Generation stopped when the local server restarted",
+      errorMessage: "The local server restarted before this draft finished.",
+      completedAt: now,
+      updatedAt: now,
+    })
+    .where(inArray(generationJobs.status, ["queued", "running", "cancelling"]));
+}
+
+export async function createGenerationJob(input: InsertGenerationJob) {
+  if (getStorageMode() === "local-file") {
+    return localStore.createGenerationJob(input);
+  }
+  const connection = await requireDb();
+  await connection.insert(generationJobs).values(input);
+  const created = await getGenerationJob(input.id, input.userId);
+  if (!created)
+    throw new Error("Generation job was not available after creation");
+  return created;
+}
+
+export async function getGenerationJob(id: string, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getGenerationJob(id, userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(generationJobs)
+    .where(and(eq(generationJobs.id, id), eq(generationJobs.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function getActiveGenerationJob(userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getActiveGenerationJob(userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.userId, userId),
+        inArray(generationJobs.status, ["queued", "running", "cancelling"])
+      )
+    )
+    .orderBy(desc(generationJobs.createdAt))
+    .limit(1);
+  return result[0];
+}
+
+export async function updateGenerationJob(
+  id: string,
+  userId: number,
+  data: Partial<InsertGenerationJob>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateGenerationJob(id, userId, data);
+  }
+  const connection = await requireDb();
+  await connection
+    .update(generationJobs)
+    .set(data)
+    .where(and(eq(generationJobs.id, id), eq(generationJobs.userId, userId)));
+  if (
+    typeof data.status === "string" &&
+    isTerminalGenerationStatus(data.status)
+  ) {
+    try {
+      const terminal = await connection
+        .select({ id: generationJobs.id })
+        .from(generationJobs)
+        .where(
+          and(
+            eq(generationJobs.userId, userId),
+            inArray(generationJobs.status, [
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted",
+            ])
+          )
+        )
+        .orderBy(desc(generationJobs.createdAt));
+      if (terminal.length > 100) {
+        await connection.delete(generationJobs).where(
+          inArray(
+            generationJobs.id,
+            terminal.slice(100).map(job => job.id)
+          )
+        );
+      }
+    } catch (error) {
+      console.warn("Could not prune completed generation metadata", error);
+    }
+  }
+  return getGenerationJob(id, userId);
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -100,9 +257,478 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+export async function createProject(project: InsertProject) {
+  if (getStorageMode() === "local-file") {
+    return localStore.createProject(project);
+  }
+  const connection = await requireDb();
+  const result = await connection.insert(projects).values(project);
+  const id = Number(result[0].insertId);
+  const created = await getProjectById(id, project.userId);
+  if (!created) throw new Error("Project was not available after creation");
+  return created;
+}
+
+export async function getAllProjects(userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getAllProjects(userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(projects)
+    .where(eq(projects.userId, userId))
+    .orderBy(desc(projects.updatedAt));
+}
+
+export async function getProjectById(id: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getProjectById(id, userId);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function updateProject(
+  id: number,
+  userId: number,
+  data: Partial<InsertProject>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateProject(id, userId, data);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .update(projects)
+    .set(data)
+    .where(and(eq(projects.id, id), eq(projects.userId, userId)));
+  return result[0].affectedRows > 0;
+}
+
+export async function createPlannedChapter(input: {
+  projectId: number;
+  userId: number;
+  title: string;
+  synopsis: string | null;
+}) {
+  const ritualId = `plan_${randomUUID()}`;
+  if (getStorageMode() === "local-file") {
+    return localStore.createPlannedChapter({ ...input, ritualId });
+  }
+
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const project = await transaction
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(eq(projects.id, input.projectId), eq(projects.userId, input.userId))
+      )
+      .limit(1);
+    if (!project[0]) return null;
+
+    const existingStories = await transaction
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.projectId, input.projectId),
+          eq(stories.userId, input.userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .orderBy(asc(stories.chapterNumber), asc(stories.createdAt));
+    const inserted = await transaction.insert(stories).values({
+      userId: input.userId,
+      projectId: input.projectId,
+      title: input.title,
+      prompt: input.synopsis || `Planned chapter: ${input.title}`,
+      content: "",
+      ritualId,
+      wordCount: 0,
+      qualityScore: 0,
+      ethicalApproval: 1,
+      ucfHarmony: 0,
+      ucfPrana: 0,
+      ucfDrishti: 0,
+      ucfKlesha: 0,
+      ucfResilience: 0,
+      ucfZoom: 0,
+      agentContributions: "[]",
+      seriesId: `project_${input.projectId}`,
+      draftStatus: "planned",
+      synopsis: input.synopsis,
+    });
+    const storyId = Number(inserted[0].insertId);
+    const orderedIds = [...existingStories.map(story => story.id), storyId];
+    await transaction
+      .update(stories)
+      .set({
+        seriesId: `project_${input.projectId}`,
+        chapterNumber: chapterNumberOrderCase(orderedIds),
+        previousChapterId: previousChapterOrderCase(orderedIds),
+      })
+      .where(
+        and(
+          inArray(stories.id, orderedIds),
+          eq(stories.projectId, input.projectId),
+          eq(stories.userId, input.userId),
+          isNull(stories.deletedAt)
+        )
+      );
+    await transaction
+      .update(projects)
+      .set({ updatedAt: new Date() })
+      .where(eq(projects.id, input.projectId));
+    const created = await transaction
+      .select()
+      .from(stories)
+      .where(eq(stories.id, storyId))
+      .limit(1);
+    return created[0] ?? null;
+  });
+}
+
+export async function updateStoryPlanning(
+  id: number,
+  projectId: number,
+  userId: number,
+  data: { draftStatus: ChapterStatus; synopsis: string | null }
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateStoryPlanning(id, projectId, userId, data);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const result = await transaction
+      .update(stories)
+      .set(data)
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.projectId, projectId),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      );
+    if (result[0].affectedRows === 0) return false;
+    await transaction
+      .update(projects)
+      .set({ updatedAt: new Date() })
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
+    return true;
+  });
+}
+
+export async function completePlannedChapter(
+  id: number,
+  userId: number,
+  data: PlannedChapterCompletion
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.completePlannedChapter(id, userId, data);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const existing = await transaction
+      .select()
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1);
+    const story = existing[0];
+    if (!story || !isDraftablePlannedChapter(story)) return null;
+
+    const now = new Date();
+    const updated = await transaction
+      .update(stories)
+      .set({ ...data, updatedAt: now })
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.userId, userId),
+          eq(stories.wordCount, 0),
+          eq(stories.content, ""),
+          isNull(stories.deletedAt)
+        )
+      );
+    if (updated[0].affectedRows === 0) return null;
+    await transaction
+      .update(projects)
+      .set({ updatedAt: now })
+      .where(
+        and(eq(projects.id, story.projectId!), eq(projects.userId, userId))
+      );
+    const completed = await transaction
+      .select()
+      .from(stories)
+      .where(and(eq(stories.id, id), eq(stories.userId, userId)))
+      .limit(1);
+    return completed[0] ?? null;
+  });
+}
+
+export async function reorderProjectStories(
+  projectId: number,
+  userId: number,
+  orderedStoryIds: number[]
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.reorderProjectStories(projectId, userId, orderedStoryIds);
+  }
+
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const project = await transaction
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1);
+    if (!project[0]) return false;
+
+    const projectStories = await transaction
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.projectId, projectId),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      );
+    if (
+      projectStories.length !== orderedStoryIds.length ||
+      new Set(orderedStoryIds).size !== orderedStoryIds.length
+    ) {
+      return false;
+    }
+    const projectStoryIds = new Set(projectStories.map(story => story.id));
+    if (orderedStoryIds.some(id => !projectStoryIds.has(id))) return false;
+
+    if (orderedStoryIds.length > 0) {
+      await transaction
+        .update(stories)
+        .set({
+          seriesId: `project_${projectId}`,
+          chapterNumber: chapterNumberOrderCase(orderedStoryIds),
+          previousChapterId: previousChapterOrderCase(orderedStoryIds),
+        })
+        .where(
+          and(
+            inArray(stories.id, orderedStoryIds),
+            eq(stories.projectId, projectId),
+            eq(stories.userId, userId),
+            isNull(stories.deletedAt)
+          )
+        );
+    }
+    await transaction
+      .update(projects)
+      .set({ updatedAt: new Date() })
+      .where(eq(projects.id, projectId));
+    return true;
+  });
+}
+
+export async function importProjectBackup(
+  backup: ProjectBackup,
+  userId: number
+) {
+  const plan = prepareProjectImport(backup);
+  if (getStorageMode() === "local-file") {
+    return localStore.importProject(plan, userId);
+  }
+
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const projectResult = await transaction
+      .insert(projects)
+      .values({ userId, ...plan.project });
+    const projectId = Number(projectResult[0].insertId);
+
+    if (plan.canon.length > 0) {
+      await transaction
+        .insert(canonEntries)
+        .values(plan.canon.map(entry => ({ projectId, userId, ...entry })));
+    }
+
+    const storyIds = new Map<number, number>();
+    const revisionRows: InsertStoryRevision[] = [];
+    for (const story of plan.stories) {
+      const storyResult = await transaction.insert(stories).values({
+        userId,
+        projectId,
+        previousChapterId: null,
+        ...story.values,
+      });
+      storyIds.set(story.sourceId, Number(storyResult[0].insertId));
+    }
+
+    for (const story of plan.stories) {
+      const storyId = storyIds.get(story.sourceId);
+      if (!storyId) throw new Error("Imported story mapping was lost");
+      if (story.previousSourceId) {
+        const previousChapterId = storyIds.get(story.previousSourceId);
+        if (!previousChapterId) {
+          throw new Error("Imported previous chapter mapping was lost");
+        }
+        await transaction
+          .update(stories)
+          .set({ previousChapterId })
+          .where(
+            and(
+              eq(stories.id, storyId),
+              eq(stories.projectId, projectId),
+              eq(stories.userId, userId)
+            )
+          );
+      }
+      for (const revision of story.revisions) {
+        revisionRows.push({ storyId, userId, ...revision });
+      }
+      if (story.scenes.length > 0) {
+        await transaction.insert(storyScenes).values(
+          story.scenes.map(scene => ({
+            storyId,
+            projectId,
+            userId,
+            ...scene,
+          }))
+        );
+      }
+    }
+
+    if (revisionRows.length > 0) {
+      await transaction.insert(storyRevisions).values(revisionRows);
+    }
+
+    return {
+      projectId,
+      ...plan.summary,
+    };
+  });
+}
+
+export async function createCanonEntry(input: InsertCanonEntry) {
+  if (getStorageMode() === "local-file") {
+    return localStore.createCanonEntry(input);
+  }
+  const connection = await requireDb();
+  const result = await connection.insert(canonEntries).values(input);
+  const created = await connection
+    .select()
+    .from(canonEntries)
+    .where(
+      and(
+        eq(canonEntries.id, Number(result[0].insertId)),
+        eq(canonEntries.userId, input.userId)
+      )
+    )
+    .limit(1);
+  if (!created[0])
+    throw new Error("Canon entry was not available after creation");
+  return created[0];
+}
+
+export async function getCanonEntries(projectId: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getCanonEntries(projectId, userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(canonEntries)
+    .where(
+      and(
+        eq(canonEntries.projectId, projectId),
+        eq(canonEntries.userId, userId)
+      )
+    )
+    .orderBy(asc(canonEntries.name));
+}
+
+export async function updateCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number,
+  data: Partial<InsertCanonEntry>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateCanonEntry(id, projectId, userId, data);
+  }
+  const result = await (
+    await requireDb()
+  )
+    .update(canonEntries)
+    .set(data)
+    .where(
+      and(
+        eq(canonEntries.id, id),
+        eq(canonEntries.projectId, projectId),
+        eq(canonEntries.userId, userId)
+      )
+    );
+  return result[0].affectedRows > 0;
+}
+
+export async function deleteCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.deleteCanonEntry(id, projectId, userId);
+  }
+  const result = await (await requireDb())
+    .delete(canonEntries)
+    .where(
+      and(
+        eq(canonEntries.id, id),
+        eq(canonEntries.projectId, projectId),
+        eq(canonEntries.userId, userId)
+      )
+    );
+  return result[0].affectedRows > 0;
+}
+
 export async function createStory(story: InsertStory) {
   if (getStorageMode() === "local-file") return localStore.createStory(story);
-  return (await requireDb()).insert(stories).values(story);
+  if (story.userId == null) throw new Error("Story ownership is required");
+  const userId = story.userId;
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const result = await transaction.insert(stories).values(story);
+    if (story.projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(eq(projects.id, story.projectId), eq(projects.userId, userId))
+        );
+    }
+    const created = await transaction
+      .select()
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, Number(result[0].insertId)),
+          eq(stories.userId, userId)
+        )
+      )
+      .limit(1);
+    if (!created[0]) throw new Error("Story was not available after creation");
+    return created[0];
+  });
 }
 
 export async function getStoryById(id: number, userId: number) {
@@ -155,6 +781,23 @@ export async function getAllStories(userId: number) {
     .orderBy(desc(stories.createdAt));
 }
 
+export async function getStoriesByProject(projectId: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoriesByProject(projectId, userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(stories)
+    .where(
+      and(
+        eq(stories.projectId, projectId),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    )
+    .orderBy(asc(stories.chapterNumber), asc(stories.createdAt));
+}
+
 export async function updateStory(
   id: number,
   userId: number,
@@ -173,6 +816,475 @@ export async function updateStory(
         isNull(stories.deletedAt)
       )
     );
+}
+
+export async function updateStoryOrganization(
+  id: number,
+  userId: number,
+  data: Required<Pick<InsertStory, "tags" | "isFavorite">>
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateStoryOrganization(id, userId, data);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const existing = await transaction
+      .select({ projectId: stories.projectId })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1);
+    if (!existing[0]) return false;
+    await transaction.update(stories).set(data).where(eq(stories.id, id));
+    if (existing[0].projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(
+            eq(projects.id, existing[0].projectId),
+            eq(projects.userId, userId)
+          )
+        );
+    }
+    return true;
+  });
+}
+
+export async function getStoryScenes(storyId: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoryScenes(storyId, userId);
+  }
+  const connection = await requireDb();
+  const story = await connection
+    .select({ id: stories.id })
+    .from(stories)
+    .where(
+      and(
+        eq(stories.id, storyId),
+        eq(stories.userId, userId),
+        isNull(stories.deletedAt)
+      )
+    )
+    .limit(1);
+  if (!story[0]) return null;
+  return connection
+    .select()
+    .from(storyScenes)
+    .where(
+      and(eq(storyScenes.storyId, storyId), eq(storyScenes.userId, userId))
+    )
+    .orderBy(asc(storyScenes.position));
+}
+
+export async function getStoryScenesByProject(
+  projectId: number,
+  userId: number
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoryScenesByProject(projectId, userId);
+  }
+  const project = await getProjectById(projectId, userId);
+  if (!project) return null;
+  return (await requireDb())
+    .select()
+    .from(storyScenes)
+    .where(
+      and(eq(storyScenes.projectId, projectId), eq(storyScenes.userId, userId))
+    )
+    .orderBy(asc(storyScenes.storyId), asc(storyScenes.position));
+}
+
+export async function createStoryScene(input: {
+  storyId: number;
+  projectId: number;
+  userId: number;
+  title: string;
+  summary: string;
+  pov: string | null;
+  location: string | null;
+}) {
+  if (getStorageMode() === "local-file") {
+    return localStore.createStoryScene(input);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const story = await transaction
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, input.storyId),
+          eq(stories.projectId, input.projectId),
+          eq(stories.userId, input.userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1)
+      .for("update");
+    if (!story[0]) return null;
+    const existing = await transaction
+      .select({ id: storyScenes.id })
+      .from(storyScenes)
+      .where(
+        and(
+          eq(storyScenes.storyId, input.storyId),
+          eq(storyScenes.userId, input.userId)
+        )
+      );
+    if (existing.length >= 100) return null;
+    const inserted = await transaction.insert(storyScenes).values({
+      ...input,
+      position: existing.length + 1,
+    });
+    const now = new Date();
+    await transaction
+      .update(projects)
+      .set({ updatedAt: now })
+      .where(
+        and(eq(projects.id, input.projectId), eq(projects.userId, input.userId))
+      );
+    await transaction
+      .update(stories)
+      .set({ updatedAt: now })
+      .where(eq(stories.id, input.storyId));
+    const created = await transaction
+      .select()
+      .from(storyScenes)
+      .where(eq(storyScenes.id, Number(inserted[0].insertId)))
+      .limit(1);
+    return created[0] ?? null;
+  });
+}
+
+export async function updateStoryScene(
+  id: number,
+  storyId: number,
+  userId: number,
+  data: Pick<InsertStoryScene, "title" | "summary" | "pov" | "location">
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateStoryScene(id, storyId, userId, data);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const existing = await transaction
+      .select({ projectId: storyScenes.projectId })
+      .from(storyScenes)
+      .where(
+        and(
+          eq(storyScenes.id, id),
+          eq(storyScenes.storyId, storyId),
+          eq(storyScenes.userId, userId)
+        )
+      )
+      .limit(1);
+    if (!existing[0]) return false;
+    await transaction
+      .update(storyScenes)
+      .set(data)
+      .where(eq(storyScenes.id, id));
+    const now = new Date();
+    await transaction
+      .update(stories)
+      .set({ updatedAt: now })
+      .where(eq(stories.id, storyId));
+    await transaction
+      .update(projects)
+      .set({ updatedAt: now })
+      .where(
+        and(eq(projects.id, existing[0].projectId), eq(projects.userId, userId))
+      );
+    return true;
+  });
+}
+
+export async function deleteStoryScene(
+  id: number,
+  storyId: number,
+  userId: number
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.deleteStoryScene(id, storyId, userId);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const story = await transaction
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, storyId),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1)
+      .for("update");
+    if (!story[0]) return false;
+    const existing = await transaction
+      .select({ projectId: storyScenes.projectId })
+      .from(storyScenes)
+      .where(
+        and(
+          eq(storyScenes.id, id),
+          eq(storyScenes.storyId, storyId),
+          eq(storyScenes.userId, userId)
+        )
+      )
+      .limit(1);
+    if (!existing[0]) return false;
+    await transaction.delete(storyScenes).where(eq(storyScenes.id, id));
+    const remaining = await transaction
+      .select({ id: storyScenes.id })
+      .from(storyScenes)
+      .where(
+        and(eq(storyScenes.storyId, storyId), eq(storyScenes.userId, userId))
+      )
+      .orderBy(asc(storyScenes.position));
+    if (remaining.length > 0) {
+      const ids = remaining.map(scene => scene.id);
+      await transaction
+        .update(storyScenes)
+        .set({ position: sql<number>`-${storyScenes.id}` })
+        .where(inArray(storyScenes.id, ids));
+      await transaction
+        .update(storyScenes)
+        .set({ position: scenePositionOrderCase(ids) })
+        .where(inArray(storyScenes.id, ids));
+    }
+    const now = new Date();
+    await transaction
+      .update(stories)
+      .set({ updatedAt: now })
+      .where(eq(stories.id, storyId));
+    await transaction
+      .update(projects)
+      .set({ updatedAt: now })
+      .where(
+        and(eq(projects.id, existing[0].projectId), eq(projects.userId, userId))
+      );
+    return true;
+  });
+}
+
+export async function reorderStoryScenes(
+  storyId: number,
+  userId: number,
+  orderedSceneIds: number[]
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.reorderStoryScenes(storyId, userId, orderedSceneIds);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const story = await transaction
+      .select({ projectId: stories.projectId })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, storyId),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1)
+      .for("update");
+    if (!story[0]?.projectId) return false;
+    const scenes = await transaction
+      .select({ id: storyScenes.id })
+      .from(storyScenes)
+      .where(
+        and(eq(storyScenes.storyId, storyId), eq(storyScenes.userId, userId))
+      );
+    if (
+      scenes.length !== orderedSceneIds.length ||
+      new Set(orderedSceneIds).size !== orderedSceneIds.length ||
+      orderedSceneIds.some(id => !scenes.some(scene => scene.id === id))
+    ) {
+      return false;
+    }
+    if (orderedSceneIds.length > 0) {
+      await transaction
+        .update(storyScenes)
+        .set({ position: sql<number>`-${storyScenes.id}` })
+        .where(inArray(storyScenes.id, orderedSceneIds));
+      await transaction
+        .update(storyScenes)
+        .set({ position: scenePositionOrderCase(orderedSceneIds) })
+        .where(inArray(storyScenes.id, orderedSceneIds));
+    }
+    const now = new Date();
+    await transaction
+      .update(stories)
+      .set({ updatedAt: now })
+      .where(eq(stories.id, storyId));
+    await transaction
+      .update(projects)
+      .set({ updatedAt: now })
+      .where(
+        and(eq(projects.id, story[0].projectId), eq(projects.userId, userId))
+      );
+    return true;
+  });
+}
+
+export async function updateStoryWithRevision(
+  id: number,
+  userId: number,
+  data: Pick<InsertStory, "title" | "content" | "wordCount" | "draftStatus">,
+  reason: string
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.updateStoryWithRevision(id, userId, data, reason);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const existing = await transaction
+      .select()
+      .from(stories)
+      .where(
+        and(
+          eq(stories.id, id),
+          eq(stories.userId, userId),
+          isNull(stories.deletedAt)
+        )
+      )
+      .limit(1);
+    const story = existing[0];
+    if (!story) return false;
+    const snapshot: InsertStoryRevision = {
+      storyId: id,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason,
+    };
+    await transaction.insert(storyRevisions).values(snapshot);
+    const revisions = await transaction
+      .select({ id: storyRevisions.id })
+      .from(storyRevisions)
+      .where(eq(storyRevisions.storyId, id))
+      .orderBy(desc(storyRevisions.createdAt), desc(storyRevisions.id))
+      .limit(51);
+    if (revisions.length > 50) {
+      await transaction.delete(storyRevisions).where(
+        inArray(
+          storyRevisions.id,
+          revisions.slice(50).map(item => item.id)
+        )
+      );
+    }
+    await transaction.update(stories).set(data).where(eq(stories.id, id));
+    if (story.projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(eq(projects.id, story.projectId), eq(projects.userId, userId))
+        );
+    }
+    return true;
+  });
+}
+
+export async function getStoryRevisions(storyId: number, userId: number) {
+  if (getStorageMode() === "local-file") {
+    return localStore.getStoryRevisions(storyId, userId);
+  }
+  return (await requireDb())
+    .select()
+    .from(storyRevisions)
+    .where(
+      and(
+        eq(storyRevisions.storyId, storyId),
+        eq(storyRevisions.userId, userId)
+      )
+    )
+    .orderBy(desc(storyRevisions.createdAt));
+}
+
+export async function restoreStoryRevision(
+  storyId: number,
+  revisionId: number,
+  userId: number
+) {
+  if (getStorageMode() === "local-file") {
+    return localStore.restoreStoryRevision(storyId, revisionId, userId);
+  }
+  const connection = await requireDb();
+  return connection.transaction(async transaction => {
+    const [existing, target] = await Promise.all([
+      transaction
+        .select()
+        .from(stories)
+        .where(
+          and(
+            eq(stories.id, storyId),
+            eq(stories.userId, userId),
+            isNull(stories.deletedAt)
+          )
+        )
+        .limit(1),
+      transaction
+        .select()
+        .from(storyRevisions)
+        .where(
+          and(
+            eq(storyRevisions.id, revisionId),
+            eq(storyRevisions.storyId, storyId),
+            eq(storyRevisions.userId, userId)
+          )
+        )
+        .limit(1),
+    ]);
+    const story = existing[0];
+    const revision = target[0];
+    if (!story || !revision) return false;
+    await transaction.insert(storyRevisions).values({
+      storyId,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason: "before-restore",
+    });
+    const revisions = await transaction
+      .select({ id: storyRevisions.id })
+      .from(storyRevisions)
+      .where(eq(storyRevisions.storyId, storyId))
+      .orderBy(desc(storyRevisions.createdAt), desc(storyRevisions.id))
+      .limit(51);
+    if (revisions.length > 50) {
+      await transaction.delete(storyRevisions).where(
+        inArray(
+          storyRevisions.id,
+          revisions.slice(50).map(item => item.id)
+        )
+      );
+    }
+    await transaction
+      .update(stories)
+      .set({
+        title: revision.title,
+        content: revision.content,
+        wordCount: revision.content.trim().split(/\s+/).filter(Boolean).length,
+      })
+      .where(eq(stories.id, storyId));
+    if (story.projectId) {
+      await transaction
+        .update(projects)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(eq(projects.id, story.projectId), eq(projects.userId, userId))
+        );
+    }
+    return true;
+  });
 }
 
 export async function getStoryBySeriesAndChapter(

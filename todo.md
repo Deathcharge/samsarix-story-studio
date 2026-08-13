@@ -5,10 +5,11 @@ The authoritative audit, acceptance criteria, and release evidence live in [docs
 ## P1: next release candidates
 
 - Add real stage streaming and user cancellation with a durable generation state model.
-- Add story editing/regeneration with version history and recovery.
-- Add a story bible/codex that controls what context is sent to providers.
 - Add opt-in live-provider contract tests and token/cost telemetry without exposing content or keys.
 - Complete keyboard, assistive-technology, and cross-browser verification.
+- [x] Add project import with schema validation and conflict-safe ID remapping so JSON backups are fully round-trippable.
+- [x] Add chapter planning, explicit status, persistent ordering, drag-to-reorder, and accessible move controls.
+- Add ordered scene cards within chapters after the chapter-board workflow has user-pilot evidence.
 
 ## P2: only after evidence
 

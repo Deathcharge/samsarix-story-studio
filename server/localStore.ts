@@ -3,27 +3,87 @@ import os from "node:os";
 import path from "node:path";
 import type {
   AgentLog,
+  CanonEntry,
+  GenerationJob,
   InsertAgentLog,
+  InsertCanonEntry,
+  InsertGenerationJob,
+  InsertProject,
   InsertStory,
+  InsertStoryScene,
+  InsertStoryRevision,
   InsertUcfState,
   InsertUser,
+  Project,
   Story,
+  StoryScene,
+  StoryRevision,
   UcfState,
   User,
 } from "../drizzle/schema";
+import {
+  DEFAULT_CHAPTER_STATUS,
+  type ChapterStatus,
+} from "../shared/chapterPlanning";
+import type { ProjectImportPlan } from "./projectImport";
+import {
+  isDraftablePlannedChapter,
+  type PlannedChapterCompletion,
+} from "./plannedChapter";
 
 type LocalState = {
-  version: 1;
+  version: 5;
   nextIds: {
     users: number;
+    projects: number;
     stories: number;
+    canonEntries: number;
+    storyRevisions: number;
+    storyScenes: number;
     ucfStates: number;
     agentLogs: number;
   };
   users: User[];
+  projects: Project[];
   stories: Story[];
+  canonEntries: CanonEntry[];
+  storyRevisions: StoryRevision[];
+  storyScenes: StoryScene[];
+  generationJobs: GenerationJob[];
   ucfStates: UcfState[];
   agentLogs: AgentLog[];
+};
+
+type LegacyLocalStateV4 = Omit<
+  LocalState,
+  "version" | "storyScenes" | "nextIds"
+> & {
+  version: 4;
+  nextIds: Omit<LocalState["nextIds"], "storyScenes">;
+};
+
+type LegacyLocalStateV3 = Omit<
+  LegacyLocalStateV4,
+  "version" | "generationJobs"
+> & {
+  version: 3;
+};
+
+type LegacyLocalStateV2 = Omit<LegacyLocalStateV3, "version" | "stories"> & {
+  version: 2;
+  stories: Array<Omit<Story, "draftStatus" | "synopsis">>;
+};
+
+type LegacyLocalStateV1 = Omit<
+  LegacyLocalStateV3,
+  "version" | "projects" | "canonEntries" | "storyRevisions" | "nextIds"
+> & {
+  version: 1;
+  nextIds: Omit<
+    LocalState["nextIds"],
+    "projects" | "canonEntries" | "storyRevisions"
+  >;
+  stories: Array<Omit<Story, "projectId" | "draftStatus" | "synopsis">>;
 };
 
 const DEFAULT_USER_OPEN_ID = "local-writer";
@@ -33,6 +93,7 @@ const DATE_FIELDS = new Set([
   "lastSignedIn",
   "timestamp",
   "deletedAt",
+  "completedAt",
 ]);
 
 let statePromise: Promise<LocalState> | null = null;
@@ -74,8 +135,17 @@ function reviveDates(value: unknown): unknown {
 function createInitialState(): LocalState {
   const now = new Date();
   return {
-    version: 1,
-    nextIds: { users: 2, stories: 1, ucfStates: 1, agentLogs: 1 },
+    version: 5,
+    nextIds: {
+      users: 2,
+      projects: 1,
+      stories: 1,
+      canonEntries: 1,
+      storyRevisions: 1,
+      storyScenes: 1,
+      ucfStates: 1,
+      agentLogs: 1,
+    },
     users: [
       {
         id: 1,
@@ -89,10 +159,119 @@ function createInitialState(): LocalState {
         lastSignedIn: now,
       },
     ],
+    projects: [],
     stories: [],
+    canonEntries: [],
+    storyRevisions: [],
+    storyScenes: [],
+    generationJobs: [],
     ucfStates: [],
     agentLogs: [],
   };
+}
+
+function migrateState(
+  parsed:
+    | LocalState
+    | LegacyLocalStateV4
+    | LegacyLocalStateV3
+    | LegacyLocalStateV2
+    | LegacyLocalStateV1
+): LocalState {
+  if (parsed.version === 5) return parsed;
+  if (parsed.version === 4) {
+    return {
+      ...parsed,
+      version: 5,
+      nextIds: { ...parsed.nextIds, storyScenes: 1 },
+      storyScenes: [],
+    };
+  }
+  if (parsed.version === 3) {
+    return {
+      ...parsed,
+      version: 5,
+      nextIds: { ...parsed.nextIds, storyScenes: 1 },
+      generationJobs: [],
+      storyScenes: [],
+      stories: parsed.stories.map(story => ({
+        ...story,
+        tags: story.tags ?? null,
+        isFavorite: story.isFavorite ?? 0,
+        deletedAt: story.deletedAt ?? null,
+      })),
+    };
+  }
+  if (parsed.version === 2) {
+    return {
+      ...parsed,
+      version: 5,
+      nextIds: { ...parsed.nextIds, storyScenes: 1 },
+      generationJobs: [],
+      storyScenes: [],
+      stories: parsed.stories.map(story => ({
+        ...story,
+        draftStatus: DEFAULT_CHAPTER_STATUS,
+        synopsis: null,
+        tags: story.tags ?? null,
+        isFavorite: story.isFavorite ?? 0,
+        deletedAt: story.deletedAt ?? null,
+      })),
+    };
+  }
+  if (parsed.version !== 1) {
+    throw new Error(
+      `Unsupported local data version: ${String((parsed as { version?: unknown }).version)}`
+    );
+  }
+
+  return {
+    ...parsed,
+    version: 5,
+    nextIds: {
+      ...parsed.nextIds,
+      projects: 1,
+      canonEntries: 1,
+      storyRevisions: 1,
+      storyScenes: 1,
+    },
+    projects: [],
+    stories: parsed.stories.map(story => ({
+      ...story,
+      projectId: null,
+      draftStatus: DEFAULT_CHAPTER_STATUS,
+      synopsis: null,
+      tags: story.tags ?? null,
+      isFavorite: story.isFavorite ?? 0,
+      deletedAt: story.deletedAt ?? null,
+    })),
+    canonEntries: [],
+    storyRevisions: [],
+    storyScenes: [],
+    generationJobs: [],
+  };
+}
+
+function interruptOrphanedGenerationJobs(state: LocalState) {
+  let changed = false;
+  const now = new Date();
+  for (const job of state.generationJobs) {
+    if (
+      job.status !== "queued" &&
+      job.status !== "running" &&
+      job.status !== "cancelling"
+    ) {
+      continue;
+    }
+    job.status = "interrupted";
+    job.stage = "interrupted";
+    job.stageLabel = "Generation stopped when the local server restarted";
+    job.errorMessage = "The local server restarted before this draft finished.";
+    job.completedAt = now;
+    job.updatedAt = now;
+    changed = true;
+  }
+  return changed;
 }
 
 async function persist(state: LocalState) {
@@ -112,13 +291,16 @@ async function loadState(): Promise<LocalState> {
   const dataPath = getLocalDataPath();
   try {
     const raw = await readFile(dataPath, "utf8");
-    const parsed = reviveDates(JSON.parse(raw)) as LocalState;
-    if (parsed.version !== 1) {
-      throw new Error(
-        `Unsupported local data version: ${String(parsed.version)}`
-      );
-    }
-    return parsed;
+    const parsed = reviveDates(JSON.parse(raw)) as
+      | LocalState
+      | LegacyLocalStateV4
+      | LegacyLocalStateV3
+      | LegacyLocalStateV2
+      | LegacyLocalStateV1;
+    const state = migrateState(parsed);
+    const recovered = interruptOrphanedGenerationJobs(state);
+    if (parsed.version !== 5 || recovered) await persist(state);
+    return state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 
@@ -126,14 +308,15 @@ async function loadState(): Promise<LocalState> {
     if (legacyPath) {
       try {
         const raw = await readFile(legacyPath, "utf8");
-        const parsed = reviveDates(JSON.parse(raw)) as LocalState;
-        if (parsed.version !== 1) {
-          throw new Error(
-            `Unsupported local data version: ${String(parsed.version)}`
-          );
-        }
-        await persist(parsed);
-        return parsed;
+        const parsed = reviveDates(JSON.parse(raw)) as
+          | LocalState
+          | LegacyLocalStateV3
+          | LegacyLocalStateV2
+          | LegacyLocalStateV1;
+        const state = migrateState(parsed);
+        interruptOrphanedGenerationJobs(state);
+        await persist(state);
+        return state;
       } catch (legacyError) {
         if ((legacyError as NodeJS.ErrnoException).code !== "ENOENT") {
           throw legacyError;
@@ -159,9 +342,11 @@ async function readState() {
 
 async function mutate<T>(operation: (state: LocalState) => T | Promise<T>) {
   const pending = writeQueue.then(async () => {
-    const state = await getState();
-    const result = await operation(state);
-    await persist(state);
+    const current = await getState();
+    const next = clone(current);
+    const result = await operation(next);
+    await persist(next);
+    statePromise = Promise.resolve(next);
     return result;
   });
 
@@ -174,6 +359,118 @@ async function mutate<T>(operation: (state: LocalState) => T | Promise<T>) {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function pruneStoryRevisions(state: LocalState, storyId: number) {
+  const retainedIds = new Set(
+    state.storyRevisions
+      .filter(revision => revision.storyId === storyId)
+      .sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id
+      )
+      .slice(0, 50)
+      .map(revision => revision.id)
+  );
+  state.storyRevisions = state.storyRevisions.filter(
+    revision => revision.storyId !== storyId || retainedIds.has(revision.id)
+  );
+}
+
+function pruneGenerationJobs(state: LocalState, userId: number) {
+  const retainedTerminalIds = new Set(
+    state.generationJobs
+      .filter(
+        job =>
+          job.userId === userId &&
+          job.status !== "queued" &&
+          job.status !== "running" &&
+          job.status !== "cancelling"
+      )
+      .sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+      )
+      .slice(0, 100)
+      .map(job => job.id)
+  );
+  state.generationJobs = state.generationJobs.filter(
+    job =>
+      job.userId !== userId ||
+      job.status === "queued" ||
+      job.status === "running" ||
+      job.status === "cancelling" ||
+      retainedTerminalIds.has(job.id)
+  );
+}
+
+export async function createGenerationJob(input: InsertGenerationJob) {
+  return mutate(state => {
+    const now = new Date();
+    const record: GenerationJob = {
+      id: input.id,
+      userId: input.userId,
+      projectId: input.projectId ?? null,
+      storyId: input.storyId ?? null,
+      ritualId: input.ritualId ?? null,
+      mode: input.mode,
+      status: input.status,
+      stage: input.stage,
+      stageLabel: input.stageLabel,
+      progress: input.progress ?? 0,
+      cancelRequested: input.cancelRequested ?? 0,
+      errorMessage: input.errorMessage ?? null,
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+      completedAt: input.completedAt ?? null,
+    };
+    state.generationJobs.push(record);
+    pruneGenerationJobs(state, input.userId);
+    return clone(record);
+  });
+}
+
+export async function getGenerationJob(id: string, userId: number) {
+  const state = await readState();
+  const job = state.generationJobs.find(
+    entry => entry.id === id && entry.userId === userId
+  );
+  return job ? clone(job) : undefined;
+}
+
+export async function getActiveGenerationJob(userId: number) {
+  const state = await readState();
+  const job = state.generationJobs
+    .filter(
+      entry =>
+        entry.userId === userId &&
+        (entry.status === "queued" ||
+          entry.status === "running" ||
+          entry.status === "cancelling")
+    )
+    .sort(
+      (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+    )[0];
+  return job ? clone(job) : undefined;
+}
+
+export async function updateGenerationJob(
+  id: string,
+  userId: number,
+  data: Partial<InsertGenerationJob>
+) {
+  return mutate(state => {
+    const job = state.generationJobs.find(
+      entry => entry.id === id && entry.userId === userId
+    );
+    if (!job) return undefined;
+    const definedData = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined)
+    );
+    Object.assign(job, definedData, {
+      updatedAt: data.updatedAt ?? new Date(),
+    });
+    pruneGenerationJobs(state, userId);
+    return clone(job);
+  });
 }
 
 export async function getLocalUser(): Promise<User> {
@@ -212,6 +509,354 @@ export async function getUserByOpenId(openId: string) {
   return user ? clone(user) : undefined;
 }
 
+export async function createProject(project: InsertProject) {
+  return mutate(state => {
+    const now = new Date();
+    const id = state.nextIds.projects++;
+    const record: Project = {
+      id,
+      userId: project.userId,
+      title: project.title,
+      premise: project.premise,
+      genre: project.genre ?? null,
+      style: project.style ?? null,
+      createdAt: project.createdAt ?? now,
+      updatedAt: project.updatedAt ?? now,
+    };
+    state.projects.push(record);
+    return clone(record);
+  });
+}
+
+export async function getAllProjects(userId: number) {
+  const state = await readState();
+  return state.projects
+    .filter(project => project.userId === userId)
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+    .map(clone);
+}
+
+export async function getProjectById(id: number, userId: number) {
+  const state = await readState();
+  const project = state.projects.find(
+    entry => entry.id === id && entry.userId === userId
+  );
+  return project ? clone(project) : undefined;
+}
+
+export async function updateProject(
+  id: number,
+  userId: number,
+  data: Partial<InsertProject>
+) {
+  return mutate(state => {
+    const project = state.projects.find(
+      entry => entry.id === id && entry.userId === userId
+    );
+    if (!project) return false;
+    Object.assign(project, data, { updatedAt: new Date() });
+    return true;
+  });
+}
+
+function orderProjectStories(
+  projectStories: Story[],
+  projectId: number,
+  updatedAt: Date
+) {
+  // A project is one manuscript sequence. Reordering intentionally normalizes
+  // every chapter into its stable project series as well as rebuilding links.
+  const seriesId = `project_${projectId}`;
+  projectStories.forEach((story, index) => {
+    story.seriesId = seriesId;
+    story.chapterNumber = index + 1;
+    story.previousChapterId = index === 0 ? null : projectStories[index - 1].id;
+    story.updatedAt = updatedAt;
+  });
+}
+
+export async function createPlannedChapter(input: {
+  projectId: number;
+  userId: number;
+  ritualId: string;
+  title: string;
+  synopsis: string | null;
+}) {
+  return mutate(state => {
+    const project = state.projects.find(
+      entry => entry.id === input.projectId && entry.userId === input.userId
+    );
+    if (!project) return null;
+
+    const now = new Date();
+    const record: Story = {
+      id: state.nextIds.stories++,
+      userId: input.userId,
+      projectId: input.projectId,
+      title: input.title,
+      prompt: input.synopsis || `Planned chapter: ${input.title}`,
+      content: "",
+      ritualId: input.ritualId,
+      wordCount: 0,
+      qualityScore: 0,
+      ethicalApproval: 1,
+      ucfHarmony: 0,
+      ucfPrana: 0,
+      ucfDrishti: 0,
+      ucfKlesha: 0,
+      ucfResilience: 0,
+      ucfZoom: 0,
+      agentContributions: "[]",
+      createdAt: now,
+      updatedAt: now,
+      seriesId: `project_${input.projectId}`,
+      chapterNumber: null,
+      previousChapterId: null,
+      draftStatus: "planned",
+      synopsis: input.synopsis,
+      collectionId: null,
+      tags: null,
+      isFavorite: 0,
+      deletedAt: null,
+    };
+    state.stories.push(record);
+
+    const projectStories = state.stories
+      .filter(
+        story =>
+          story.projectId === input.projectId &&
+          story.userId === input.userId &&
+          !story.deletedAt
+      )
+      .sort((left, right) => {
+        const chapterDifference =
+          (left.chapterNumber ?? Number.MAX_SAFE_INTEGER) -
+          (right.chapterNumber ?? Number.MAX_SAFE_INTEGER);
+        return (
+          chapterDifference ||
+          left.createdAt.getTime() - right.createdAt.getTime()
+        );
+      });
+    orderProjectStories(projectStories, input.projectId, now);
+    project.updatedAt = now;
+    return clone(record);
+  });
+}
+
+export async function updateStoryPlanning(
+  id: number,
+  projectId: number,
+  userId: number,
+  data: { draftStatus: ChapterStatus; synopsis: string | null }
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry =>
+        entry.id === id &&
+        entry.projectId === projectId &&
+        entry.userId === userId &&
+        !entry.deletedAt
+    );
+    if (!story) return false;
+    const now = new Date();
+    Object.assign(story, data, { updatedAt: now });
+    const project = state.projects.find(
+      entry => entry.id === projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function completePlannedChapter(
+  id: number,
+  userId: number,
+  data: PlannedChapterCompletion
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry => entry.id === id && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story || !isDraftablePlannedChapter(story)) return null;
+
+    const now = new Date();
+    Object.assign(story, data, { updatedAt: now });
+    const project = state.projects.find(
+      entry => entry.id === story.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return clone(story);
+  });
+}
+
+export async function reorderProjectStories(
+  projectId: number,
+  userId: number,
+  orderedStoryIds: number[]
+) {
+  return mutate(state => {
+    const project = state.projects.find(
+      entry => entry.id === projectId && entry.userId === userId
+    );
+    if (!project) return false;
+
+    const projectStories = state.stories.filter(
+      story =>
+        story.projectId === projectId &&
+        story.userId === userId &&
+        !story.deletedAt
+    );
+    if (
+      projectStories.length !== orderedStoryIds.length ||
+      new Set(orderedStoryIds).size !== orderedStoryIds.length
+    ) {
+      return false;
+    }
+
+    const byId = new Map(projectStories.map(story => [story.id, story]));
+    const orderedStories = orderedStoryIds.map(id => byId.get(id));
+    if (orderedStories.some(story => !story)) return false;
+
+    const now = new Date();
+    orderProjectStories(orderedStories as Story[], projectId, now);
+    project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function importProject(plan: ProjectImportPlan, userId: number) {
+  return mutate(state => {
+    const projectId = state.nextIds.projects++;
+    state.projects.push({
+      id: projectId,
+      userId,
+      ...plan.project,
+    });
+
+    for (const entry of plan.canon) {
+      state.canonEntries.push({
+        id: state.nextIds.canonEntries++,
+        projectId,
+        userId,
+        ...entry,
+      });
+    }
+
+    const storyIds = new Map<number, number>();
+    const importedStories = new Map<number, Story>();
+    for (const story of plan.stories) {
+      const id = state.nextIds.stories++;
+      const record: Story = {
+        id,
+        userId,
+        projectId,
+        previousChapterId: null,
+        ...story.values,
+      };
+      state.stories.push(record);
+      storyIds.set(story.sourceId, id);
+      importedStories.set(story.sourceId, record);
+    }
+
+    for (const story of plan.stories) {
+      const record = importedStories.get(story.sourceId);
+      if (!record) throw new Error("Imported story mapping was lost");
+      if (story.previousSourceId) {
+        const previousChapterId = storyIds.get(story.previousSourceId);
+        if (!previousChapterId) {
+          throw new Error("Imported previous chapter mapping was lost");
+        }
+        record.previousChapterId = previousChapterId;
+      }
+
+      for (const revision of story.revisions) {
+        state.storyRevisions.push({
+          id: state.nextIds.storyRevisions++,
+          storyId: record.id,
+          userId,
+          ...revision,
+        });
+      }
+      for (const scene of story.scenes) {
+        state.storyScenes.push({
+          id: state.nextIds.storyScenes++,
+          storyId: record.id,
+          projectId,
+          userId,
+          ...scene,
+        });
+      }
+    }
+
+    return {
+      projectId,
+      ...plan.summary,
+    };
+  });
+}
+
+export async function createCanonEntry(input: InsertCanonEntry) {
+  return mutate(state => {
+    const now = new Date();
+    const id = state.nextIds.canonEntries++;
+    const record: CanonEntry = {
+      id,
+      projectId: input.projectId,
+      userId: input.userId,
+      kind: input.kind,
+      name: input.name,
+      content: input.content,
+      activationKeys: input.activationKeys,
+      alwaysInclude: input.alwaysInclude ?? 0,
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    };
+    state.canonEntries.push(record);
+    return clone(record);
+  });
+}
+
+export async function getCanonEntries(projectId: number, userId: number) {
+  const state = await readState();
+  return state.canonEntries
+    .filter(entry => entry.projectId === projectId && entry.userId === userId)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(clone);
+}
+
+export async function updateCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number,
+  data: Partial<InsertCanonEntry>
+) {
+  return mutate(state => {
+    const entry = state.canonEntries.find(
+      item =>
+        item.id === id && item.projectId === projectId && item.userId === userId
+    );
+    if (!entry) return false;
+    Object.assign(entry, data, { updatedAt: new Date() });
+    return true;
+  });
+}
+
+export async function deleteCanonEntry(
+  id: number,
+  projectId: number,
+  userId: number
+) {
+  return mutate(state => {
+    const index = state.canonEntries.findIndex(
+      item =>
+        item.id === id && item.projectId === projectId && item.userId === userId
+    );
+    if (index < 0) return false;
+    state.canonEntries.splice(index, 1);
+    return true;
+  });
+}
+
 export async function createStory(story: InsertStory) {
   return mutate(state => {
     const now = new Date();
@@ -219,6 +864,7 @@ export async function createStory(story: InsertStory) {
     const record: Story = {
       id,
       userId: story.userId ?? null,
+      projectId: story.projectId ?? null,
       title: story.title,
       prompt: story.prompt,
       content: story.content,
@@ -238,13 +884,21 @@ export async function createStory(story: InsertStory) {
       seriesId: story.seriesId ?? null,
       chapterNumber: story.chapterNumber ?? null,
       previousChapterId: story.previousChapterId ?? null,
+      draftStatus: story.draftStatus ?? DEFAULT_CHAPTER_STATUS,
+      synopsis: story.synopsis ?? null,
       collectionId: story.collectionId ?? null,
       tags: story.tags ?? null,
       isFavorite: story.isFavorite ?? 0,
       deletedAt: story.deletedAt ?? null,
     };
     state.stories.push(record);
-    return { insertId: id };
+    if (record.projectId) {
+      const project = state.projects.find(
+        entry => entry.id === record.projectId && entry.userId === record.userId
+      );
+      if (project) project.updatedAt = now;
+    }
+    return clone(record);
   });
 }
 
@@ -273,6 +927,24 @@ export async function getAllStories(userId: number) {
     .map(clone);
 }
 
+export async function getStoriesByProject(projectId: number, userId: number) {
+  const state = await readState();
+  return state.stories
+    .filter(
+      entry =>
+        entry.projectId === projectId &&
+        entry.userId === userId &&
+        !entry.deletedAt
+    )
+    .sort((a, b) => {
+      const chapterDifference =
+        (a.chapterNumber ?? Number.MAX_SAFE_INTEGER) -
+        (b.chapterNumber ?? Number.MAX_SAFE_INTEGER);
+      return chapterDifference || a.createdAt.getTime() - b.createdAt.getTime();
+    })
+    .map(clone);
+}
+
 export async function updateStory(
   id: number,
   userId: number,
@@ -284,6 +956,285 @@ export async function updateStory(
     );
     if (!story) return false;
     Object.assign(story, data, { updatedAt: new Date() });
+    return true;
+  });
+}
+
+export async function updateStoryOrganization(
+  id: number,
+  userId: number,
+  data: Required<Pick<InsertStory, "tags" | "isFavorite">>
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry => entry.id === id && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story) return false;
+    const now = new Date();
+    story.tags = data.tags ?? null;
+    story.isFavorite = data.isFavorite ?? 0;
+    story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === story.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function getStoryScenes(storyId: number, userId: number) {
+  const state = await readState();
+  const story = state.stories.find(
+    entry => entry.id === storyId && entry.userId === userId && !entry.deletedAt
+  );
+  if (!story) return null;
+  return state.storyScenes
+    .filter(scene => scene.storyId === storyId && scene.userId === userId)
+    .sort((left, right) => left.position - right.position)
+    .map(clone);
+}
+
+export async function getStoryScenesByProject(
+  projectId: number,
+  userId: number
+) {
+  const state = await readState();
+  const project = state.projects.find(
+    entry => entry.id === projectId && entry.userId === userId
+  );
+  if (!project) return null;
+  return state.storyScenes
+    .filter(scene => scene.projectId === projectId && scene.userId === userId)
+    .sort(
+      (left, right) =>
+        left.storyId - right.storyId || left.position - right.position
+    )
+    .map(clone);
+}
+
+export async function createStoryScene(input: {
+  storyId: number;
+  projectId: number;
+  userId: number;
+  title: string;
+  summary: string;
+  pov: string | null;
+  location: string | null;
+}) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry =>
+        entry.id === input.storyId &&
+        entry.projectId === input.projectId &&
+        entry.userId === input.userId &&
+        !entry.deletedAt
+    );
+    if (!story) return null;
+    const scenes = state.storyScenes.filter(
+      scene => scene.storyId === input.storyId && scene.userId === input.userId
+    );
+    if (scenes.length >= 100) return null;
+    const now = new Date();
+    const record: StoryScene = {
+      id: state.nextIds.storyScenes++,
+      ...input,
+      position: scenes.length + 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.storyScenes.push(record);
+    story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === input.projectId && entry.userId === input.userId
+    );
+    if (project) project.updatedAt = now;
+    return clone(record);
+  });
+}
+
+export async function updateStoryScene(
+  id: number,
+  storyId: number,
+  userId: number,
+  data: Pick<InsertStoryScene, "title" | "summary" | "pov" | "location">
+) {
+  return mutate(state => {
+    const scene = state.storyScenes.find(
+      entry =>
+        entry.id === id && entry.storyId === storyId && entry.userId === userId
+    );
+    if (!scene) return false;
+    const now = new Date();
+    Object.assign(scene, data, { updatedAt: now });
+    const story = state.stories.find(
+      entry => entry.id === storyId && entry.userId === userId
+    );
+    if (story) story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === scene.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function deleteStoryScene(
+  id: number,
+  storyId: number,
+  userId: number
+) {
+  return mutate(state => {
+    const index = state.storyScenes.findIndex(
+      entry =>
+        entry.id === id && entry.storyId === storyId && entry.userId === userId
+    );
+    if (index < 0) return false;
+    const [removed] = state.storyScenes.splice(index, 1);
+    const now = new Date();
+    state.storyScenes
+      .filter(scene => scene.storyId === storyId && scene.userId === userId)
+      .sort((left, right) => left.position - right.position)
+      .forEach((scene, sceneIndex) => {
+        scene.position = sceneIndex + 1;
+        scene.updatedAt = now;
+      });
+    const story = state.stories.find(
+      entry => entry.id === storyId && entry.userId === userId
+    );
+    if (story) story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === removed.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function reorderStoryScenes(
+  storyId: number,
+  userId: number,
+  orderedSceneIds: number[]
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry =>
+        entry.id === storyId && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story) return false;
+    const scenes = state.storyScenes.filter(
+      scene => scene.storyId === storyId && scene.userId === userId
+    );
+    const byId = new Map(scenes.map(scene => [scene.id, scene]));
+    if (
+      scenes.length !== orderedSceneIds.length ||
+      new Set(orderedSceneIds).size !== orderedSceneIds.length ||
+      orderedSceneIds.some(id => !byId.has(id))
+    ) {
+      return false;
+    }
+    const now = new Date();
+    for (const [index, id] of orderedSceneIds.entries()) {
+      const scene = byId.get(id);
+      if (!scene) return false;
+      scene.position = index + 1;
+      scene.updatedAt = now;
+    }
+    story.updatedAt = now;
+    const project = state.projects.find(
+      entry => entry.id === story.projectId && entry.userId === userId
+    );
+    if (project) project.updatedAt = now;
+    return true;
+  });
+}
+
+export async function updateStoryWithRevision(
+  id: number,
+  userId: number,
+  data: Pick<InsertStory, "title" | "content" | "wordCount" | "draftStatus">,
+  reason: string
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry => entry.id === id && entry.userId === userId && !entry.deletedAt
+    );
+    if (!story) return false;
+
+    const now = new Date();
+    state.storyRevisions.push({
+      id: state.nextIds.storyRevisions++,
+      storyId: story.id,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason,
+      createdAt: now,
+    });
+    pruneStoryRevisions(state, story.id);
+    Object.assign(story, data, { updatedAt: now });
+    if (story.projectId) {
+      const project = state.projects.find(
+        entry => entry.id === story.projectId && entry.userId === userId
+      );
+      if (project) project.updatedAt = now;
+    }
+    return true;
+  });
+}
+
+export async function getStoryRevisions(storyId: number, userId: number) {
+  const state = await readState();
+  return state.storyRevisions
+    .filter(
+      revision => revision.storyId === storyId && revision.userId === userId
+    )
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map(clone);
+}
+
+export async function restoreStoryRevision(
+  storyId: number,
+  revisionId: number,
+  userId: number
+) {
+  return mutate(state => {
+    const story = state.stories.find(
+      entry =>
+        entry.id === storyId && entry.userId === userId && !entry.deletedAt
+    );
+    const revision = state.storyRevisions.find(
+      entry =>
+        entry.id === revisionId &&
+        entry.storyId === storyId &&
+        entry.userId === userId
+    );
+    if (!story || !revision) return false;
+
+    const now = new Date();
+    const currentSnapshot: StoryRevision = {
+      id: state.nextIds.storyRevisions++,
+      storyId,
+      userId,
+      title: story.title,
+      content: story.content,
+      reason: "before-restore",
+      createdAt: now,
+    };
+    state.storyRevisions.push(currentSnapshot);
+    pruneStoryRevisions(state, storyId);
+    story.title = revision.title;
+    story.content = revision.content;
+    story.wordCount = revision.content
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+    story.updatedAt = now;
+    if (story.projectId) {
+      const project = state.projects.find(
+        entry => entry.id === story.projectId && entry.userId === userId
+      );
+      if (project) project.updatedAt = now;
+    }
     return true;
   });
 }

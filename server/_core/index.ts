@@ -4,9 +4,14 @@ import net from "node:net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import express from "express";
 import { appRouter } from "../routers";
+import * as db from "../db";
+import { registerGenerationEventRoutes } from "../generationEvents";
 import { createContext } from "./context";
 import { ENV } from "./env";
-import { enforceRequestBoundary } from "./requestSecurity";
+import {
+  enforceRequestBoundary,
+  isBackupImportRequestPath,
+} from "./requestSecurity";
 import { serveStatic, setupVite } from "./vite";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -61,13 +66,32 @@ export async function startServer(): Promise<Server> {
   const server = createServer(app);
   app.disable("x-powered-by");
   app.use(enforceRequestBoundary);
-  app.use(express.json({ limit: "1mb" }));
-  app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
   app.get("/healthz", (_req, res) => {
     res.json({ ok: true, mode: ENV.authMode });
   });
 
+  try {
+    await db.recoverInterruptedGenerationJobs();
+  } catch (error) {
+    const storageTarget =
+      db.getLocalDataPath() ?? "the configured MySQL database";
+    console.error(
+      `Could not reconcile interrupted generation jobs in ${storageTarget}; startup aborted to preserve lifecycle integrity.`,
+      error
+    );
+    throw error;
+  }
+  registerGenerationEventRoutes(app);
+
+  const standardJsonParser = express.json({ limit: "1mb" });
+  const backupImportJsonParser = express.json({ limit: "8mb" });
+  app.use("/api/trpc", (req, res, next) => {
+    const parser = isBackupImportRequestPath(req.path)
+      ? backupImportJsonParser
+      : standardJsonParser;
+    parser(req, res, next);
+  });
   app.use(
     "/api/trpc",
     createExpressMiddleware({ router: appRouter, createContext })

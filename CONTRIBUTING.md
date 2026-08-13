@@ -7,7 +7,7 @@ Samsarix Story Studio is currently a local-first MVP. Keep changes focused on th
 Requirements: Git, Node.js 20–24, and pnpm 11.9.0.
 
 ```bash
-git clone https://github.com/Deathcharge/helix-creative-studio.git
+git clone https://github.com/Deathcharge/samsarix-story-studio.git
 cd helix-creative-studio
 pnpm install --frozen-lockfile
 pnpm dev

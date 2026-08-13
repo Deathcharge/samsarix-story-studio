@@ -5,6 +5,7 @@
 
 import { executeDemoRitual } from "./demoEngine";
 import { randomUUID } from "node:crypto";
+import type { GenerationStage } from "../shared/generationLifecycle";
 import {
   callLLM,
   getConfiguredProviders,
@@ -26,10 +27,7 @@ export interface StoryMetadata {
   wordCount: number;
   qualityScore: number;
   ethicalApproval: boolean;
-  agentContributions: Record<
-    string,
-    { provider: string; tokens: number; role: string }
-  >;
+  agentContributions: Record<string, { provider: string; role: string }>;
   ucfSnapshot: {
     harmony: number;
     prana: number;
@@ -51,11 +49,24 @@ export interface CreativeRitualResult {
 
 export interface RitualOptions {
   preset?: string; // Preset mode ID
+  context?: string;
   customAgents?: Array<{
     agentId: string;
     provider?: LLMProvider;
     temperature?: number;
   }>;
+  signal?: AbortSignal;
+  onStage?: (stage: GenerationStage, progress: number) => void | Promise<void>;
+}
+
+async function reportStage(
+  options: RitualOptions,
+  stage: GenerationStage,
+  progress: number
+) {
+  options.signal?.throwIfAborted();
+  await options.onStage?.(stage, progress);
+  options.signal?.throwIfAborted();
 }
 
 /**
@@ -66,12 +77,13 @@ export async function executeCreativeRitualMulti(
   options: RitualOptions = {}
 ): Promise<CreativeRitualResult> {
   if (getConfiguredProviders().length === 0) {
-    return executeDemoRitual(prompt);
+    return executeDemoRitual(prompt, options.context, options);
   }
 
   const ritualId = `ritual_${randomUUID()}`;
 
   try {
+    await reportStage(options, "preparing", 5);
     console.log(`[Z-88 Multi] Starting ritual ${ritualId}`);
     console.log(`[Z-88 Multi] Preset: ${options.preset || "balanced"}`);
 
@@ -98,6 +110,7 @@ export async function executeCreativeRitualMulti(
       throw new Error("Oracle agent is required");
     }
 
+    await reportStage(options, "plot", 15);
     const plotStructure = await invokeAgent(
       oracleSetup.config,
       oracleSetup.provider,
@@ -106,12 +119,15 @@ export async function executeCreativeRitualMulti(
 
 "${prompt}"
 
+${options.context ? `Use this writer-approved project context as canon:\n${options.context}` : ""}
+
 Provide:
 1. **Act I Setup**: Introduce protagonist, world, and initial conflict
 2. **Act II Confrontation**: Escalate stakes, add complications, include a major twist
 3. **Act III Resolution**: Climax and satisfying conclusion
 
-Focus on dramatic structure, pacing, and character arcs. Be specific about key plot points.`
+Focus on dramatic structure, pacing, and character arcs. Be specific about key plot points.`,
+      options.signal
     );
 
     console.log(`[Z-88 Multi] Oracle complete (${oracleSetup.provider})`);
@@ -121,6 +137,7 @@ Focus on dramatic structure, pacing, and character arcs. Be specific about key p
     let characterDepth = "";
 
     if (luminaSetup) {
+      await reportStage(options, "characters", 28);
       characterDepth = await invokeAgent(
         luminaSetup.config,
         luminaSetup.provider,
@@ -135,7 +152,8 @@ Develop the protagonist's emotional arc and internal conflicts:
 3. **Relationships**: Key dynamics with other characters
 4. **Internal Conflict**: Core psychological struggle
 
-Make the character feel authentic and emotionally resonant.`
+Make the character feel authentic and emotionally resonant.`,
+        options.signal
       );
 
       console.log(`[Z-88 Multi] Lumina complete (${luminaSetup.provider})`);
@@ -146,6 +164,7 @@ Make the character feel authentic and emotionally resonant.`
     let worldDetails = "";
 
     if (geminiSetup) {
+      await reportStage(options, "world", 40);
       worldDetails = await invokeAgent(
         geminiSetup.config,
         geminiSetup.provider,
@@ -160,7 +179,8 @@ Build the cyberpunk world:
 3. **Society**: Social structures, power dynamics, culture
 4. **Economics**: How the world functions
 
-Make the world feel lived-in and believable.`
+Make the world feel lived-in and believable.`,
+        options.signal
       );
 
       console.log(`[Z-88 Multi] Gemini complete (${geminiSetup.provider})`);
@@ -171,6 +191,7 @@ Make the world feel lived-in and believable.`
     let creativeTwists = "";
 
     if (agniSetup) {
+      await reportStage(options, "twists", 52);
       creativeTwists = await invokeAgent(
         agniSetup.config,
         agniSetup.provider,
@@ -185,7 +206,8 @@ Inject 2-3 unexpected creative elements:
 2. A novel combination of ideas or concepts
 3. A bold creative risk that makes the story memorable
 
-Be original and daring.`
+Be original and daring.`,
+        options.signal
       );
 
       console.log(`[Z-88 Multi] Agni complete (${agniSetup.provider})`);
@@ -196,6 +218,7 @@ Be original and daring.`
     let researchNotes = "";
 
     if (researcherSetup) {
+      await reportStage(options, "research", 60);
       researchNotes = await invokeAgent(
         researcherSetup.config,
         researcherSetup.provider,
@@ -212,7 +235,8 @@ Provide:
 3. Scientific plausibility notes
 4. Relevant citations or references
 
-Keep it brief but credible.`
+Keep it brief but credible.`,
+        options.signal
       );
 
       console.log(
@@ -223,6 +247,7 @@ Keep it brief but credible.`
     // Step 7: Synthesis - Generate final story
     const synthesisProvider = oracleSetup.provider; // Use Oracle's provider for synthesis
 
+    await reportStage(options, "synthesis", 70);
     const finalStory = await callLLM(
       synthesisProvider,
       [
@@ -236,6 +261,8 @@ Keep it brief but credible.`
           content: `Create a complete cyberpunk short story using these elements:
 
 **Original Prompt**: ${prompt}
+
+${options.context ? `**Writer-approved project context**:\n${options.context}\n` : ""}
 
 **Plot Structure**:
 ${plotStructure}
@@ -261,16 +288,17 @@ Write the complete story with:
 Begin the story directly—no meta-commentary.`,
         },
       ],
-      { temperature: 0.8, maxTokens: 4000 }
+      { temperature: 0.8, maxTokens: 4000, signal: options.signal }
     );
 
     console.log(`[Z-88 Multi] Synthesis complete`);
 
     // Step 8: Claude (Quality Assessment)
     const claudeSetup = agentSetup.get("claude");
-    let qualityScore = 0.85;
+    let qualityScore = 0;
 
     if (claudeSetup) {
+      await reportStage(options, "review", 86);
       const qualityAssessment = await invokeAgent(
         claudeSetup.config,
         claudeSetup.provider,
@@ -286,12 +314,13 @@ Rate on a scale of 0.0 to 1.0 for:
 4. Pacing
 5. Originality
 
-Provide only a single number (e.g., 0.87) representing the overall quality score.`
+Provide only a single number (e.g., 0.87) representing the overall quality score.`,
+        options.signal
       );
 
-      const scoreMatch = qualityAssessment.match(/0\.\d+|1\.0/);
-      if (scoreMatch) {
-        qualityScore = parseFloat(scoreMatch[0]);
+      const scoreText = qualityAssessment.trim();
+      if (/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(scoreText)) {
+        qualityScore = Number(scoreText);
       }
 
       console.log(`[Z-88 Multi] Claude assessment: ${qualityScore}`);
@@ -299,31 +328,33 @@ Provide only a single number (e.g., 0.87) representing the overall quality score
 
     // Step 9: Kavach (Ethical Review)
     const kavachSetup = agentSetup.get("kavach");
-    let ethicalApproval = true;
+    let ethicalApproval = false;
 
     if (kavachSetup) {
+      await reportStage(options, "review", 91);
       const ethicalReview = await invokeAgent(
         kavachSetup.config,
         kavachSetup.provider,
         0.2,
-        `Review this story for ethical compliance with Tony Accords v13.4:
-- Nonmaleficence (do no harm)
-- Autonomy (respect agency)
-- Compassion (empathic resonance)
-- Humility (acknowledge limitations)
+        `Perform an advisory content-risk review of this fiction draft. Check for:
+- sexual content involving minors
+- targeted dehumanization of protected groups
+- actionable instructions for serious wrongdoing
+- accidental disclosure of private personal information
+- other severe content risks a writer should inspect before sharing
 
 Story excerpt:
 ${finalStory.content.substring(0, 1500)}...
 
-Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
+Respond with ONLY "PASS" or "FLAGGED" followed by brief reasoning. This is an advisory flag, not a guarantee.`,
+        options.signal
       );
 
-      const normalizedReview = ethicalReview.toUpperCase();
-      ethicalApproval =
-        normalizedReview.includes("APPROVED") &&
-        !normalizedReview.includes("REJECTED");
+      const normalizedReview = ethicalReview.trim().toUpperCase();
+      const reviewStatus = normalizedReview.match(/^(PASS|FLAGGED)\b/)?.[1];
+      ethicalApproval = reviewStatus === "PASS";
       console.log(
-        `[Z-88 Multi] Kavach review: ${ethicalApproval ? "APPROVED" : "REJECTED"}`
+        `[Z-88 Multi] Kavach advisory: ${ethicalApproval ? "PASS" : "FLAGGED"}`
       );
     }
 
@@ -338,12 +369,11 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
 
     const agentContributions: Record<
       string,
-      { provider: string; tokens: number; role: string }
+      { provider: string; role: string }
     > = {};
     agentSetup.forEach((setup, agentId) => {
       agentContributions[agentId] = {
         provider: setup.provider,
-        tokens: 0, // Would track actual tokens in production
         role: setup.config.role,
       };
     });
@@ -357,12 +387,12 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
       ethicalApproval,
       agentContributions,
       ucfSnapshot: {
-        harmony: 0.68 + (qualityScore - 0.85) * 0.2,
-        prana: 0.75,
-        drishti: 0.8,
-        klesha: ethicalApproval ? 0.02 : 0.15,
-        resilience: 1.1,
-        zoom: 1.15,
+        harmony: 0,
+        prana: 0,
+        drishti: 0,
+        klesha: 0,
+        resilience: 0,
+        zoom: 0,
       },
     };
 
@@ -376,6 +406,7 @@ Respond with ONLY "APPROVED" or "REJECTED" followed by brief reasoning.`
       metadata,
     };
   } catch (error) {
+    if (options.signal?.aborted) throw error;
     console.error(`[Z-88 Multi] Ritual ${ritualId} failed:`, error);
     return {
       success: false,
@@ -395,7 +426,8 @@ async function invokeAgent(
   config: AgentConfig,
   provider: LLMProvider,
   temperature: number,
-  userPrompt: string
+  userPrompt: string,
+  signal?: AbortSignal
 ): Promise<string> {
   const messages: LLMMessage[] = [
     { role: "system", content: config.systemPrompt },
@@ -405,6 +437,7 @@ async function invokeAgent(
   const response = await callLLM(provider, messages, {
     temperature,
     maxTokens: 2000,
+    signal,
   });
   return response.content;
 }

@@ -7,18 +7,19 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-story-studio` (ready).
 
-Current disposition: Merge the productization branch after exact-head verification and rollback-ref creation; release and adoption remain separate decisions.
+Current disposition: Versions 1.0 through 1.5 are merged product candidates; 1.6 is under verification. Reproducible source packaging is implemented, while an independent user pilot, public release, and flagship adoption remain separate gates.
 
 ## Stabilize the productized default
 
 - Keep the default branch buildable from a clean checkout and preserve exact-head CI evidence.
 - Keep Samsarix LLC branding, package identity, license metadata, and compatibility aliases internally consistent.
 - Preserve the pre-productization default under a rollback ref before merging; do not delete legacy history.
-- Review priority: Make review metadata truthful.
-- Review priority: persist logs/trajectories.
-- Review priority: remove story text from continuation URLs.
-- Review priority: make persistence consistent.
-- Review priority: test cancellation/custom endpoints.
+- [x] Make review metadata truthful and show advisory outcomes only when the configured reviewer actually ran.
+- [x] Remove inactive UCF trajectory and agent-log routes from the product interface while retaining storage compatibility.
+- [x] Remove story text from continuation URLs.
+- [x] Make local persistence commits consistent after write failure.
+- [x] Persist content-free generation jobs, report live stages, recover interrupted work, and support cancellation.
+- [x] Complete a blank chapter plan in place without duplicating or reordering manuscript chapters.
 
 ## Release candidate
 
@@ -28,12 +29,15 @@ Current disposition: Merge the productization branch after exact-head verificati
 
 Current hardening backlog:
 
-- No independently observed CI result, clean install, React/browser QA, or live provider smoke test.
-- No committed tests cover provider SDK contracts, MySQL, disk failure/corruption, generation cancellation, or the in-flight guard.
-- “Automated review passed,” quality/UCF scores, agent logs, and trajectories overstate the evidence currently recorded: review can default to success, UCF values are derived constants, tokens are zero placeholders, and new stories write no log/trajectory rows.
+- No live provider smoke test or packaged-artifact user pilot; both require owner credentials/spend approval or independent participants. Reproducible packaging and exact runbooks are present.
+- No committed tests execute paid provider SDK calls, live MySQL, or disk failure/corruption paths. Credential-free behavioral tests cover generation cancellation, overlap prevention, job ownership, and restart recovery.
+- [x] Remove invented review success, UCF values, token counts, logs, and trajectories from the active contract.
 - Provider defaults and response compatibility can drift; five adapters plus unrestricted `OPENAI_BASE_URL` create ongoing maintenance/security work.
-- Continuation mutates the prior record before a new chapter exists and puts story-derived text in the URL.
-- Optional MySQL expands scope without evidence it is necessary or CI-covered; local-store write failure can leave disk and memory inconsistent.
+- [x] Project backups round-trip through schema-validating, copy-only import with conflict-safe identity remapping.
+- [x] Chapter plans have explicit status and synopsis fields, and persisted ordering maintains a single continuity chain.
+- [x] Ordered scene cards round-trip through both storage profiles and backups and guide planned-chapter preparation.
+- [x] Bounded tags and favorites organize the local archive.
+- Optional MySQL expands scope without live database CI evidence; its import path is transaction-scoped and type/build checked only.
 - No desktop installer or hosted distribution path; source checkout is the current route.
 - Legal ownership, BSL parameters, and branding need explicit owner approval.
 - Branch history is confusing because unrelated `main` and default `master` represent different products.

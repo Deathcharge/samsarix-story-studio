@@ -5,11 +5,13 @@ import {
   CircleAlert,
   FileText,
   Search,
-  ShieldCheck,
   Sparkles,
+  Star,
+  Tag,
   Zap,
 } from "lucide-react";
 import { Link } from "wouter";
+import { CHAPTER_STATUS_LABELS } from "@shared/chapterPlanning";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,15 +20,36 @@ import { trpc } from "@/lib/trpc";
 
 export default function Archive() {
   const [query, setQuery] = useState("");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [pendingFavoriteIds, setPendingFavoriteIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const utils = trpc.useUtils();
   const storiesQuery = trpc.stories.list.useQuery();
+  const organizationMutation = trpc.stories.updateOrganization.useMutation({
+    onSuccess: () => utils.stories.list.invalidate(),
+    onMutate: variables => {
+      setPendingFavoriteIds(current => new Set(current).add(variables.id));
+    },
+    onSettled: (_data, _error, variables) => {
+      setPendingFavoriteIds(current => {
+        const next = new Set(current);
+        next.delete(variables.id);
+        return next;
+      });
+    },
+  });
   const stories = storiesQuery.data ?? [];
   const filteredStories = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return stories;
-    return stories.filter(story =>
-      `${story.title} ${story.prompt}`.toLowerCase().includes(needle)
-    );
-  }, [query, stories]);
+    return stories.filter(story => {
+      if (favoritesOnly && !story.isFavorite) return false;
+      if (!needle) return true;
+      return `${story.title} ${story.synopsis ?? ""} ${story.prompt} ${story.tags.join(" ")}`
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [favoritesOnly, query, stories]);
 
   return (
     <div className="min-h-screen">
@@ -40,6 +63,12 @@ export default function Archive() {
             aria-label="Primary navigation"
             className="flex items-center gap-5 text-sm"
           >
+            <Link
+              href="/projects"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Projects
+            </Link>
             <Link
               href="/generate"
               className="text-muted-foreground hover:text-foreground"
@@ -62,7 +91,7 @@ export default function Archive() {
                 Story archive
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Reopen, continue, or export every saved draft.
+                Reopen every planned, drafted, or revised chapter.
               </p>
             </div>
             <Button asChild>
@@ -74,16 +103,28 @@ export default function Archive() {
           </div>
 
           {stories.length > 0 && (
-            <div className="relative max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                value={query}
-                onChange={event => setQuery(event.target.value)}
-                placeholder="Search titles and premises"
-                className="pl-9"
-                aria-label="Search story archive"
-              />
+            <div className="flex max-w-2xl flex-col gap-3 sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                  placeholder="Search titles, plans, premises, and tags"
+                  className="pl-9"
+                  aria-label="Search story archive"
+                />
+              </div>
+              <Button
+                variant={favoritesOnly ? "default" : "outline"}
+                aria-pressed={favoritesOnly}
+                onClick={() => setFavoritesOnly(current => !current)}
+              >
+                <Star
+                  className={`mr-2 h-4 w-4 ${favoritesOnly ? "fill-current" : ""}`}
+                />
+                Favorites only
+              </Button>
             </div>
           )}
 
@@ -115,53 +156,72 @@ export default function Archive() {
           ) : filteredStories.length > 0 ? (
             <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
               {filteredStories.map(story => (
-                <Link
-                  key={story.id}
-                  href={`/story/${story.ritualId}`}
-                  className="group block h-full"
-                >
-                  <Card className="story-card h-full p-6">
-                    <div className="flex items-start justify-between gap-4">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                        {story.seriesId
-                          ? `Chapter ${story.chapterNumber ?? "—"}`
-                          : "Standalone"}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(story.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="mt-5">
-                      <h2 className="line-clamp-2 text-xl font-bold transition group-hover:text-primary">
+                <Card key={story.id} className="story-card h-full p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                      {story.seriesId
+                        ? `Chapter ${story.chapterNumber ?? "—"}`
+                        : "Standalone"}
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`${story.isFavorite ? "Remove" : "Add"} ${story.title} ${story.isFavorite ? "from" : "to"} favorites`}
+                      aria-pressed={story.isFavorite}
+                      disabled={pendingFavoriteIds.has(story.id)}
+                      onClick={() =>
+                        organizationMutation.mutate({
+                          id: story.id,
+                          tags: story.tags,
+                          isFavorite: !story.isFavorite,
+                        })
+                      }
+                    >
+                      <Star
+                        className={`h-4 w-4 ${story.isFavorite ? "fill-current text-primary" : ""}`}
+                      />
+                    </Button>
+                  </div>
+                  <div className="mt-5">
+                    <h2 className="line-clamp-2 text-xl font-bold">
+                      <Link
+                        href={`/story/${story.ritualId}`}
+                        className="transition hover:text-primary"
+                      >
                         {story.title}
-                      </h2>
-                      <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">
-                        {story.prompt}
-                      </p>
-                    </div>
-                    <div className="mt-6 flex flex-wrap gap-2">
-                      <Badge variant="outline">
-                        <FileText className="mr-1 h-3 w-3" />
-                        {story.wordCount} words
+                      </Link>
+                    </h2>
+                    <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                      {story.synopsis || story.prompt}
+                    </p>
+                  </div>
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    <Badge variant="outline">
+                      <FileText className="mr-1 h-3 w-3" />
+                      {story.wordCount} words
+                    </Badge>
+                    <Badge variant="outline">
+                      {CHAPTER_STATUS_LABELS[story.draftStatus]}
+                    </Badge>
+                    {story.tags.map(tag => (
+                      <Badge key={tag} variant="secondary">
+                        <Tag className="mr-1 h-3 w-3" /> {tag}
                       </Badge>
-                      {story.ethicalApproval && (
-                        <Badge variant="outline">
-                          <ShieldCheck className="mr-1 h-3 w-3" />
-                          Review passed
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="mt-6 flex items-center justify-between border-t border-border/50 pt-4 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        Saved locally
-                      </span>
-                      <span>
-                        {Math.round(story.qualityScore * 100)}% advisory score
-                      </span>
-                    </div>
-                  </Card>
-                </Link>
+                    ))}
+                  </div>
+                  <div className="mt-6 flex items-center justify-between border-t border-border/50 pt-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(story.createdAt).toLocaleDateString()}
+                    </span>
+                    <Link
+                      href={`/story/${story.ritualId}`}
+                      className="font-medium hover:text-primary"
+                    >
+                      Open draft
+                    </Link>
+                  </div>
+                </Card>
               ))}
             </div>
           ) : stories.length > 0 ? (

@@ -1,15 +1,15 @@
 {
   "name": "samsarix-story-studio",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "description": "Samsarix Story Studio: a local-first, multi-agent fiction workshop with bring-your-own-provider support.",
   "author": "Samsarix LLC",
-  "homepage": "https://github.com/Deathcharge/helix-creative-studio#readme",
+  "homepage": "https://github.com/Deathcharge/samsarix-story-studio#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Deathcharge/helix-creative-studio.git"
+    "url": "git+https://github.com/Deathcharge/samsarix-story-studio.git"
   },
   "bugs": {
-    "url": "https://github.com/Deathcharge/helix-creative-studio/issues",
+    "url": "https://github.com/Deathcharge/samsarix-story-studio/issues",
     "email": "support@samsarix.com"
   },
   "type": "module",
@@ -29,6 +29,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify": "pnpm lint && pnpm check && pnpm test && pnpm build",
+    "package:source": "node scripts/package-release.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
@@ -36,7 +37,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.67.0",
     "@google/generative-ai": "^0.24.1",
-    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-label": "^2.1.15",
     "@radix-ui/react-progress": "^1.1.7",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slider": "^1.3.6",
@@ -55,7 +56,7 @@
     "express": "^4.22.2",
     "lucide-react": "^0.453.0",
     "mysql2": "^3.15.0",
-    "nanoid": "^5.1.5",
+    "nanoid": "^5.1.16",
     "openai": "^6.7.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -79,7 +80,7 @@
     "tsx": "^4.19.1",
     "tw-animate-css": "^1.4.0",
     "typescript": "5.9.3",
-    "vite": "^7.1.7",
-    "vitest": "^2.1.4"
+    "vite": "^7.3.5",
+    "vitest": "^3.2.6"
   }
 }
